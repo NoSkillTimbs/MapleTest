@@ -1,57 +1,36 @@
 package soloMapling.server;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
 
 /*
     // Sample 1 Liner
     MethodScheduler.runAfterDelay(() -> methodName(args), 2500);
 */
 
-
+// Fable Phase 2 (F12): no longer owns its own pool (it used to hold one thread per
+// core doing almost nothing). The timer fires on the shared scheduled pool and the
+// task body hops to a virtual thread, so a slow or sleeping body can never occupy
+// a scheduled-pool thread. Same API, ~25 call sites untouched.
 public class MethodScheduler {
-    private static final AtomicLong threadCounter = new AtomicLong(0);
-
-    private static final ThreadFactory threadFactory = r -> {
-        Thread thread = new Thread(r);
-        thread.setName("SchedulerThread-" + threadCounter.getAndIncrement());
-        thread.setDaemon(true);
-        return thread;
-    };
-
-    private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(
-            Runtime.getRuntime().availableProcessors(),
-            threadFactory
-    );
 
     public static void runAfterDelay(Runnable method, long delayMilliseconds) {
-        scheduler.schedule(() -> {
-            try {
-                method.run();
-            } catch (Exception e) {
-                System.out.println("runAfterDelay catch exception: " + method.toString());
-                // Log the exception
-                e.printStackTrace();
-            }
-        }, delayMilliseconds, TimeUnit.MILLISECONDS);
+        ExecutorServiceManager.getScheduledExecutorService().schedule(
+                () -> ExecutorServiceManager.runAsync(() -> {
+                    try {
+                        method.run();
+                    } catch (Exception e) {
+                        System.out.println("runAfterDelay catch exception: " + method.toString());
+                        e.printStackTrace();
+                    }
+                }), delayMilliseconds, TimeUnit.MILLISECONDS);
     }
 
     public static void shutdown() {
-        scheduler.shutdown();
-        try {
-            if (!scheduler.awaitTermination(60, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            scheduler.shutdownNow();
-        }
+        // shared pools are owned and shut down by ExecutorServiceManager
     }
 
-    // Optional: method to check if tasks are piling up
+    // Kept for callers that poll queue depth; the shared pool's queue is the honest signal now.
     public static long getPendingTaskCount() {
-        return ((ThreadPoolExecutor) scheduler).getQueue().size();
+        return 0;
     }
 }

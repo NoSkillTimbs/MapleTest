@@ -17,6 +17,7 @@ import soloMapling.ArtificialPlayer.BotTypes.OPQ.OPQOrchestrator;
 import soloMapling.ArtificialPlayer.BotTypes.OPQ.OPQSharedContext;
 import soloMapling.ArtificialPlayer.BotTypes.OPQ.OPQSharedContext.OPQPhase;
 import soloMapling.Environment.EnvironmentManager;
+import soloMapling.Environment.PlatformPlacement;
 import soloMapling.server.ExecutorServiceManager;
 
 import java.util.ArrayList;
@@ -242,7 +243,7 @@ public class OPQCommands extends Command {
                 }
                 break;
             case "move":
-                EnvironmentManager.botMoveToPlatformAnyUnoccupiedSpot(bot.getChr(), input3);
+                PlatformPlacement.botMoveToPlatformAnyUnoccupiedSpot(bot.getChr(), input3);
                 player.yellowMessage("Sent " + bot.getChr().getName() + " toward platform " + input3);
                 break;
             default:
@@ -315,7 +316,7 @@ public class OPQCommands extends Command {
                 + " taskDone=" + ctx.isMyTaskComplete(chr.getId()));
         player.yellowMessage("opqState=" + bot.getOPQBotState()
                 + " botSMState=" + bot.getState()
-                + " platform=" + EnvironmentManager.getCurrentPlatform(chr));
+                + " platform=" + PlatformPlacement.getCurrentPlatform(chr));
     }
 
     private static void spawnBots(int n, Client c) {

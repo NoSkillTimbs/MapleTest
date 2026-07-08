@@ -3,21 +3,27 @@ package soloMapling.ArtificialPlayer.BotTradeSystem;
 import client.Character;
 import soloMapling.ArtificialPlayer.BotBlockList;
 
-import static soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeCommands.getTradePartnerCharacter;
-
 public class BotTradeLogic {
 
     public static boolean checkTradeQueue(Character fakechar) {
-        if (BotTradeQueue.getInstance().hasPendingTrades(fakechar)) {
-            if (BotBlockList.getInstance().isBlocked(fakechar.getId(), getTradePartnerCharacter(fakechar).getId())) {
-                BotTradeQueue.getInstance().removeTradeRequest(fakechar);
-                BotTradeCommands.declineTradeInvite(fakechar);
-                return false;
-            }
-            acceptTradeRequest(fakechar);
-            return true;
+        BotTradeQueue queue = BotTradeQueue.getInstance();
+        if (!queue.hasPendingTrades(fakechar)) {
+            return false;
         }
-        return false;
+        // The inviter may have cancelled before this tick ran — the trade object is already gone
+        // but the queue entry survived. Treat it as stale and drop it instead of dereferencing.
+        Character partner = queue.getTradeRequest(fakechar);
+        if (fakechar.getTrade() == null || partner == null) {
+            queue.removeTradeRequest(fakechar);
+            return false;
+        }
+        if (BotBlockList.getInstance().isBlocked(fakechar.getId(), partner.getId())) {
+            queue.removeTradeRequest(fakechar);
+            BotTradeCommands.declineTradeInvite(fakechar);
+            return false;
+        }
+        acceptTradeRequest(fakechar);
+        return true;
     }
 
     private static void acceptTradeRequest(Character fakechar) {

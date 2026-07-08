@@ -146,7 +146,7 @@ public class MapGraph {
 
     public void setMainAreas() {
         if (!directory.exists()) {
-            System.out.println("Directory does not exist");
+            debugprint("MapGraph: no movement-packet dir for map " + mapId);
             return;
         }
 
@@ -170,7 +170,7 @@ public class MapGraph {
 
     public void setConnectors() {
         if (!directory.exists()) {
-            System.out.println("Directory does not exist");
+            debugprint("MapGraph: no movement-packet dir for map " + mapId);
             return;
         }
 

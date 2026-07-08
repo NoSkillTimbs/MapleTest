@@ -72,6 +72,15 @@ public class BotPartyCommands {
 
         if (res.result == InviteResultType.ACCEPTED) {
             boolean joined = Party.joinParty(fakechar, partyId, false);
+            if (!joined) {
+                // joinParty fails silently to the inviter (party disbanded / full / bot already
+                // partied) - tell them so a clean re-invite is the obvious next move.
+                Character inviter = entry.getInviter();
+                if (inviter != null) {
+                    inviter.sendPacket(PacketCreator.serverNotice(5, fakechar.getName()
+                            + " couldn't join your party (it was full or disbanded) - try inviting again."));
+                }
+            }
             debugprint("botAcceptPartyInvite: joined=" + joined + " partyId=" + partyId);
             return joined;
         }
@@ -86,14 +95,17 @@ public class BotPartyCommands {
             return false;
         }
 
-        InviteCoordinator.answerInvite(InviteType.PARTY, fakechar.getId(), entry.getPartyId(), false);
+        InviteResult res = InviteCoordinator.answerInvite(InviteType.PARTY, fakechar.getId(), entry.getPartyId(), false);
         BotPartyQueue.getInstance().removePartyInvite(fakechar);
 
+        // Only tell the inviter the bot declined when the coordinator entry actually existed and was
+        // denied (DENIED). A NOT_FOUND means the invite was already gone/superseded, so the notice
+        // would be misleading - clear the queue entry either way.
         Character inviter = entry.getInviter();
-        if (inviter != null) {
+        if (inviter != null && res.result == InviteResultType.DENIED) {
             inviter.sendPacket(PacketCreator.serverNotice(5, fakechar.getName() + " has declined your party request."));
         }
-        debugprint("botRejectPartyInvite: declined invite from " + (inviter == null ? "?" : inviter.getName()));
+        debugprint("botRejectPartyInvite: result=" + res.result + " inviter=" + (inviter == null ? "?" : inviter.getName()));
         return true;
     }
 

@@ -110,18 +110,17 @@ public class BotHelpers {
                 obj1.getItem().getQuantity() == (obj2.getItem().getQuantity());
     }
 
-    /**
-     * Blocks the current thread for the given number of <b>milliseconds</b>
-     * (name is historical — it's ms, not seconds).
-     * <p>
-     * Returns {@code true} if the sleep completed normally, {@code false} if the
-     * thread was interrupted. On interrupt, the interrupt flag is restored so the
-     * caller can bail cleanly. Callers that don't care may ignore the return.
-     * <p>
-     * Only use for small amounts. Thread.sleep in a task run by an ExecutorService
-     * blocks that worker — prefer ScheduledExecutorService.schedule for long delays.
-     */
-    public static boolean sleepAmountSeconds(long milliseconds) {
+    // Blocks the current thread for the given number of milliseconds.
+    // ONLY for deliberate synchronous choreography: scripts whose steps have
+    // data-driven durations (dialogue playback, movement recordings, blocking
+    // warps) run sequentially on a virtual thread and are MEANT to hold it.
+    // Every such call site carries a "deliberate" comment saying why.
+    // For everything else use the BotTiming toolkit (decision table in its
+    // header): pacing the FSM's next action = BotSM.waitFor, one delayed
+    // side-effect = BotTiming.after, scripted beats = BotTiming.chain.
+    // Returns true if the sleep completed, false if the thread was interrupted
+    // (interrupt flag restored so the caller can bail).
+    public static boolean blockingSleep(long milliseconds) {
         try {
             Thread.sleep(milliseconds);
             return true;
@@ -163,15 +162,22 @@ public class BotHelpers {
                 point.y >= topLeft.y && point.y <= bottomRight.y;
     }
 
-    public static void waitBetweenTwoLong(long timestamp1, long timestamp2) {
-        long diff = timestamp2 - timestamp1;
+    // Blocks the replaying thread for the gap between two recorded packet timestamps.
+    // Deliberately blocking: recording replay is data-driven synchronous choreography
+    // and runs on a virtual thread. Returns false if the thread was interrupted
+    // (interrupt flag restored) so the replay loop can bail; true if the wait completed.
+    // Diff is clamped at 0 so an out-of-order timestamp can't throw from Thread.sleep.
+    public static boolean waitBetweenTwoLong(long timestamp1, long timestamp2) {
+        long diff = Math.max(0, timestamp2 - timestamp1);
         if (diff > 2000) {
             System.out.println("More than 2 seconds waiting");
         }
         try {
             Thread.sleep(diff);
+            return true;
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

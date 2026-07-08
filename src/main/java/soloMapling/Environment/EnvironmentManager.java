@@ -1,20 +1,28 @@
 package soloMapling.Environment;
 
 import client.Character;
+import client.Job;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotGeneration;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
+import soloMapling.ArtificialPlayer.BotDecoratorSystem.BotDecorate;
 import soloMapling.ArtificialPlayer.BotDecoratorSystem.BotDecorationQueue;
 import soloMapling.ArtificialPlayer.BotDecoratorSystem.BotEquipChecker;
 import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.ArtificialPlayer.BotMapEntryResponder;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTypeManager;
+import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
+import soloMapling.ArtificialPlayer.BotGrindSystem.BotSpotPicker;
+import soloMapling.ArtificialPlayer.BotTownSystem.TownPresenceConfig;
+import soloMapling.ArtificialPlayer.BotTownSystem.TownPresenceSampler;
 import soloMapling.ArtificialPlayer.BotTypes.Blackjack.BlackjackDealerBot;
 import soloMapling.ArtificialPlayer.ConversationManager;
 import soloMapling.ArtificialPlayer.SocialHotPotatoManager;
 import soloMapling.Casino.CasinoChipConfig;
 import soloMapling.server.ExecutorServiceManager;
 import soloMapling.server.NpcSpawner;
+import constants.id.MapId;
 import constants.id.NpcId;
 
 import java.awt.*;
@@ -23,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static soloMapling.ArtificialPlayer.BotCustomization.EquipBot;
 import static soloMapling.ArtificialPlayer.BotCustomization.getRandomChairId;
 import static soloMapling.ArtificialPlayer.BotGeneration.createBotPollReadiness;
 import static soloMapling.ArtificialPlayer.BotHelpers.isBot;
@@ -33,6 +42,13 @@ import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.bo
 import static soloMapling.ArtificialPlayer.BotTypeManager.setAndStartBots;
 import static soloMapling.DebugUtilities.debugprint;
 import static soloMapling.DebugUtilities.fmt;
+import static soloMapling.Environment.PlatformPlacement.createBotWithRetry;
+import static soloMapling.Environment.PlatformPlacement.getAllCharsOnMap;
+import static soloMapling.Environment.PlatformPlacement.getMainPlatformIds;
+import static soloMapling.Environment.PlatformPlacement.spawnBotsOnMapOnPlatform;
+import static soloMapling.Environment.PlatformPlacement.spawnBotsOnMapOnPlatformInRadius;
+import static soloMapling.Environment.PlatformPlacement.spawnFillerBots;
+import static soloMapling.Environment.PlatformPlacement.spawnFillerBotsLockedY;
 import static soloMapling.Environment.PlatformSpawner.findUnoccupiedPoint;
 import static soloMapling.Environment.PlatformSpawner.findUnoccupiedPoints;
 import static soloMapling.FreeMarket.ArtificialFreeMarket.populateFreeMarketRegion;
@@ -81,6 +97,10 @@ public class EnvironmentManager {
         // Server.init() alongside the other WZ-derived data - guaranteed ready
         // before any player can trigger this.
         long startupStart = System.currentTimeMillis();
+
+        // Wake bots instantly (movement + macro brain) whenever a real player shares their map, in both
+        // directions - a player entering a populated map, or a bot returning to the player's map.
+        BotMapEntryResponder.register();
 
         runWave(1, "Essentials", List.of(
                 () -> spawnCasinoNpcs(),
@@ -140,6 +160,53 @@ public class EnvironmentManager {
                 () -> spawnMerchBotsBatch("m5", 2, 2, 1)
         ));
 
+        // Roaming training grinders. Each cohort = N job-coherent bots at a town's spawn portal; they
+        // discover nearby level-appropriate field maps via WZ and fan out on their own. DIAL THESE
+        // COUNTS DOWN (e.g. 2 each) for a first-boot pilot, then restore. Sub-level-10 cohorts spawn
+        // Beginners (job 0): the decorator dresses them with a sword and they fight with a basic
+        // skill-0 swing (BotAttackConfig basic-swing fallback), so a 1..9 band is fine - they hunt
+        // snails / shrooms on the low fields each town discovers nearby.
+        //
+        // DEEP-HUB cohorts: map discovery is hop-capped by level (hopsForLevel), so a long dungeon's far
+        // end is out of a town-spawned bot's reach until it's high enough level. To populate the deep maps
+        // with appropriately-levelled bots we also spawn a cohort at a deep mid-dungeon junction:
+        // Sleepywood's Ant Tunnel runs ~9 hops to Ant Tunnel Park (a lv45-70 bot's radius doesn't span
+        // that); Ludibrium's deep high-level end is the Path of Time / Clocktower (Forgotten Path of Time →
+        // Papulatus), past what the Ludi-town cohort reaches. A non-town spawn is handled gracefully:
+        // homeMapId becomes that junction, GO_TOWN returns there, and the unlisted map just skips shop
+        // trips (TrainingBot.doInit / TOWN_SHOPS).
+        runWave(8, "Training bots", List.of(
+                () -> GCMovement.mapsWithinHops(MapId.HENESYS, 1),          // prewarm the portal graph once
+                () -> spawnTrainingBotsAt(MapId.LITH_HARBOUR,  20,  1, 15),
+                () -> spawnTrainingBotsAt(MapId.HENESYS,       225, 10, 95),
+                () -> spawnTrainingBotsAt(MapId.KERNING_CITY,  225, 10, 65),
+                () -> spawnTrainingBotsAt(MapId.PERION,        225, 10, 65),
+                () -> spawnTrainingBotsAt(MapId.ELLINIA,       225, 10, 65),
+                () -> spawnTrainingBotsAt(MapId.SLEEPYWOOD,     225, 25, 95),  // town: Sleepy Dungeon + Ant Tunnel I-IV + Forest of Golem
+                () -> spawnTrainingBotsAt(MapId.ANT_TUNNEL_PARK, 180, 40, 95), // deep hub (~9 hops in): Cave of Evil Eye / Grave of Mushmom
+                () -> spawnTrainingBotsAt(MapId.ORBIS,         220, 30, 86),
+                () -> spawnTrainingBotsAt(MapId.LUDIBRIUM,     200, 25, 95),
+                () -> spawnTrainingBotsAt(MapId.PATH_OF_TIME_HUB, 160, 70, 95), // deep hub: Forgotten Path of Time / Clocktower (Platoon Chronos, Papa Pixie → Papulatus)
+                () -> spawnTrainingBotsAt(MapId.EL_NATH,       200, 50, 80),  // town: shops at El Nath Market (potion / equip); grinds Ice Valley + cloud maps
+                () -> spawnTrainingBotsAt(MapId.SHARP_CLIFF_I, 200, 60, 90), // deep hub (Jeff one-way from Ice Valley II): Sharp Cliff II / Wolf Territory / Forest of Dead Trees / Dead Mine
+
+                () -> spawnTrainingBotsAt(MapId.HENESYS,       25,  1,  9),  // beginner sword grinders
+                () -> spawnTrainingBotsAt(MapId.KERNING_CITY,  20,  1,  9),  // beginner sword grinders
+                () -> spawnTrainingBotsAt(MapId.PERION,        20,  1,  9),  // beginner sword grinders
+                () -> spawnTrainingBotsAt(MapId.ELLINIA,       20,  1,  9)  // beginner sword grinders
+
+        ));
+
+        // Ambient town population: SocialBots scattered at anchor-weighted spots across the seven towns
+        // that until now had only grinders passing through, plus roaming wanderers. Runs after wave 8 so the
+        // town nav graphs are already baked by the training cohorts spawned there. Counts are fixed per town
+        // in TownPresence.yaml. One task per town so the cohorts spawn in parallel across the pool (like wave 8).
+        List<Runnable> townTasks = new ArrayList<>();
+        for (TownPresenceConfig.TownEntry town : TownPresenceConfig.towns()) {
+            townTasks.add(() -> spawnTown(town));
+        }
+        runWave(9, "Town presence", townTasks);
+
         BotDecorationQueue.start();
         BotEquipChecker.start();
 
@@ -147,6 +214,109 @@ public class EnvironmentManager {
         System.out.println(String.format(
                 "[EnvironmentManager] === All bots initialized: %d bots in %.1fs ===",
                 BotGeneration.getBotsCreatedCount(), totalSeconds));
+    }
+
+    // Spawn one town's training-bot cohort: n job-coherent roaming grinders at the town's spawn
+    // portal, each a random non-pirate explorer class (1..4) with a coherent level (lo..hi) + job +
+    // gear set together by the decorator. They self-discover nearby level-appropriate field maps and
+    // fan out. A sub-level-10 band spawns Beginners (job 0): the decorator gives them a sword and
+    // they fight with a basic skill-0 swing, so low bands are fine (class 1..4 is moot - all sword).
+    private static int spawnTrainingBotsAt(int townMapId, int n, int loLevel, int hiLevel) {
+        MapleMap map = getMapleMapById(townMapId);
+        if (map == null || map.getPortal(0) == null) {
+            debugprint(fmt("TrainingBots: no map / spawn portal for {}", townMapId));
+            return 0;
+        }
+        Point sp = map.getPortal(0).getPosition();
+        int spawned = spawnScatteredTrainingBots(map, sp, n, loLevel, hiLevel).size();
+        debugprint(fmt("TrainingBots: {} spawned on map {} (lv {}..{})", spawned, townMapId, loLevel, hiLevel));
+        return spawned;
+    }
+
+    // Spawn n training bots scattered across the map's reachable platforms - an organic ground spot per
+    // bot picked by BotSpotPicker (every walkable ledge in the X band, vertical stacking included),
+    // instead of stacking everyone on one point. `anchor` seeds the reachability filter (pass the spawn
+    // portal, or a GM's position for a dev dry-run) and is the per-bot fallback when the nav graph yields
+    // no eligible ledge (empty/unbaked). Returns the created ids, already typed + started as TRAINING_BOTs.
+    public static List<Integer> spawnScatteredTrainingBots(MapleMap map, Point anchor, int n, int loLevel, int hiLevel) {
+        List<Point> spots = BotSpotPicker.pickGroundSpots(map, anchor.x, anchor.y, n);
+        List<Integer> ids = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            Point spawnAt = i < spots.size() ? spots.get(i) : anchor;
+            int baseClass = BotDecorate.rollBaseClass(); // weighted 1..4 (Thief-heavy, Bowman-rare; Pirate excluded)
+            try {
+                int botId = BotGeneration.createBot(spawnAt, map, baseClass, loLevel, hiLevel);
+                if (botId > 0) {
+                    ids.add(botId);
+                }
+            } catch (Exception e) {
+                debugprint(fmt("TrainingBots: create failed on {} ({})", map.getId(), e.getMessage()));
+            }
+        }
+        setAndStartBots(ids, BotTypeManager.BotType.TRAINING_BOT);
+        return ids;
+    }
+
+    // Ambient town population: for each town in TownPresence.yaml, scatter its per-map stationed SocialBot
+    // headcounts plus its town-level roaming TownWandererBot count at anchor-weighted spots, so the seven
+    // towns beyond Henesys read as lived-in instead of only having grinders pass through. Fixed counts
+    // (YAML-tunable). Called from wave 9; also driven live by !env townpresence.
+    public static void spawnTownPresence() {
+        for (TownPresenceConfig.TownEntry town : TownPresenceConfig.towns()) {
+            spawnTown(town);
+        }
+    }
+
+    // Spawn one town's ambient population: its per-map stationed SocialBots plus its roaming wanderers.
+    public static void spawnTown(TownPresenceConfig.TownEntry town) {
+        for (TownPresenceConfig.MapShare share : town.maps()) {
+            int n = spawnSocialCohort(share.mapId(), share.count(), town.levelLo(), town.levelHi());
+            debugprint(fmt("TownPresence: {} social bots on map {} ({}, lv {}..{})",
+                    n, share.mapId(), town.name(), town.levelLo(), town.levelHi()));
+        }
+        if (town.wanderers() > 0) {
+            int w = spawnTownWanderers(town.mainMapId(), town.wanderers(), town.levelLo(), town.levelHi());
+            debugprint(fmt("TownPresence: {} wanderers on map {} ({})", w, town.mainMapId(), town.name()));
+        }
+    }
+
+    // Spawn n stationed ambient SocialBots on a map at anchor-weighted ground spots (near NPCs/shops, on
+    // the main ground band, with a thin straggler tail - see TownPresenceSampler). Returns how many created.
+    public static int spawnSocialCohort(int mapId, int n, int loLevel, int hiLevel) {
+        return spawnTownCohort(mapId, n, loLevel, hiLevel, BotTypeManager.BotType.SOCIAL_BOT);
+    }
+
+    // Spawn n roaming TownWandererBots seeded at anchor-weighted spots on a town's main map; they fan out
+    // and drift its map family on their own. The generic (non-Henesys) counterpart to HenesysBot.
+    public static int spawnTownWanderers(int mapId, int n, int loLevel, int hiLevel) {
+        return spawnTownCohort(mapId, n, loLevel, hiLevel, BotTypeManager.BotType.TOWN_WANDERER_BOT);
+    }
+
+    // Shared town-cohort spawn: place n bots at anchor-weighted ground spots on the map (mirrors
+    // spawnScatteredTrainingBots but with the weighted sampler), typed as `type`.
+    private static int spawnTownCohort(int mapId, int n, int loLevel, int hiLevel, BotTypeManager.BotType type) {
+        MapleMap map = getMapleMapById(mapId);
+        if (map == null || map.getPortal(0) == null) {
+            debugprint(fmt("TownPresence: no map / spawn portal for {}", mapId));
+            return 0;
+        }
+        Point anchor = map.getPortal(0).getPosition();
+        List<Point> spots = TownPresenceSampler.sample(map, anchor, n, TownPresenceConfig.overridesFor(mapId));
+        List<Integer> ids = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            Point spawnAt = i < spots.size() ? spots.get(i) : anchor;
+            int baseClass = BotDecorate.rollBaseClass(); // weighted 1..4 (Pirate excluded), gear/job set together
+            try {
+                int botId = BotGeneration.createBot(spawnAt, map, baseClass, loLevel, hiLevel);
+                if (botId > 0) {
+                    ids.add(botId);
+                }
+            } catch (Exception e) {
+                debugprint(fmt("TownPresence: create failed on {} ({})", mapId, e.getMessage()));
+            }
+        }
+        setAndStartBots(ids, type);
+        return ids.size();
     }
 
     /**
@@ -410,6 +580,60 @@ public class EnvironmentManager {
         });
     }
 
+    private static final int HHG1 = 104040000; // Henesys Hunting Ground 1
+
+    // Weapon ids by type; any level works since the bot equip bypasses requirements. The
+    // weapon TYPE is what matters - it drives the attack route, projectile, and (for
+    // warriors) the sword/spear skill form.
+    private static final int W_SWORD = 1302012, W_SPEAR = 1432007, W_WAND = 1372015,
+            W_BOW = 1452009, W_CROSSBOW = 1462009, W_CLAW = 1472026, W_DAGGER = 1332018;
+
+    // One fixed spot per class line, with the job to use at tier 1/2/3/4. Forcing the job +
+    // weapon lets the attack resolver pick the tier-appropriate skill for in-game testing.
+    private record TierSlot(Point pos, int weaponId, int t1, int t2, int t3, int t4) {
+        int jobForTier(int tier) {
+            return switch (tier) { case 2 -> t2; case 3 -> t3; case 4 -> t4; default -> t1; };
+        }
+    }
+
+    private static final List<TierSlot> ATTACK_TEST_SLOTS = List.of(
+            new TierSlot(new Point(240, 215),  W_SWORD,    100, 110, 111, 112), // Warrior: Fighter->Crusader->Hero
+            new TierSlot(new Point(1022, 215), W_SPEAR,    100, 130, 131, 132), // Warrior: Spearman->DrK->DarkKnight (spear forms)
+            new TierSlot(new Point(340, -85),  W_WAND,     200, 210, 211, 212), // Mage: F/P Wizard->Mage->ArchMage
+            new TierSlot(new Point(912, -85),  W_WAND,     200, 220, 221, 222), // Mage: I/L Wizard->Mage->ArchMage
+            new TierSlot(new Point(631, 215),  W_WAND,     200, 230, 231, 232), // Mage: Cleric->Priest->Bishop (holy); between the two y=215 warriors
+            new TierSlot(new Point(900, -325), W_BOW,      300, 310, 311, 312), // Archer: Hunter->Ranger->Bowmaster
+            new TierSlot(new Point(404, -325), W_CROSSBOW, 300, 320, 321, 322), // Archer: Crossbowman->Sniper->Marksman
+            new TierSlot(new Point(391, -565), W_CLAW,     400, 410, 411, 412), // Thief: Assassin->Hermit->Night Lord
+            new TierSlot(new Point(866, -565), W_DAGGER,   400, 420, 421, 422)  // Thief: Bandit->Chief Bandit->Shadower
+    );
+
+    /**
+     * Spawns one attack test bot per class line on Henesys Hunting Ground 1, all forced to
+     * the given job tier (1-4) and a matching level + weapon, so each tier's attacks can be
+     * eyeballed in isolation. Forcing the weapon also guarantees the crossbowman gets a
+     * crossbow (sidestepping the decoration pool's bow bias).
+     */
+    public static void spawnAttackTestBots(int tierArg) {
+        final int tier = (tierArg < 1 || tierArg > 4) ? 1 : tierArg;
+        final int level = switch (tier) { case 2 -> 50; case 3 -> 100; case 4 -> 130; default -> 25; };
+
+        debugprint(fmt("Spawning tier-{} attack test bots on Henesys Hunting Ground 1...", tier));
+        for (TierSlot slot : ATTACK_TEST_SLOTS) {
+            ExecutorServiceManager.runAsync(() -> {
+                Character bot = createBotWithRetry(slot.pos(), HHG1, 5);
+                if (bot == null) {
+                    debugprint(fmt("Failed to spawn attack test bot at {}", slot.pos()));
+                    return;
+                }
+                bot.setLevel(level);
+                bot.setJob(Job.getById(slot.jobForTier(tier)));
+                EquipBot(bot, slot.weaponId());
+                setAndStartBots(List.of(bot.getId()), BotTypeManager.BotType.TEST_ATTACK_BOT);
+            });
+        }
+    }
+
     public static void spawnDropGameSpectatorsPotionShop() {
         debugprint("Spawning Drop Game Spectator bots in Henesys Potion Shop...");
         Point[] spots = {
@@ -668,526 +892,4 @@ public class EnvironmentManager {
         }
     }
 
-    public static List<Integer> spawnBotsOnMapOnPlatform(int numBots, int mapId, String platform_id) {
-        Platform flatPlatform = PlatformParser.parsePlatform(mapId, platform_id);
-        List<Point> occupied = Collections.synchronizedList(new ArrayList<>());
-        ConcurrentLinkedQueue<Integer> characterIds = new ConcurrentLinkedQueue<>();
-        AtomicInteger failureCount = new AtomicInteger(0);
-
-        debugprint(fmt("Spawning {} bots on {} at platform: {}", numBots, mapId, platform_id));
-
-        // Pre-generate all spawn points (must be sequential to avoid overlaps)
-        List<Point> spawnPoints = new ArrayList<>();
-        for (int i = 0; i < numBots; i++) {
-            Point spawn = findUnoccupiedPoint(flatPlatform, occupied);
-            occupied.add(spawn);
-            spawnPoints.add(spawn);
-        }
-
-        // Use CountDownLatch to wait for all spawns to complete
-        CountDownLatch latch = new CountDownLatch(numBots);
-
-        for (Point spawn : spawnPoints) {
-            ExecutorServiceManager.runAsync(() -> {
-                try {
-                    Character fakechar = createBotWithRetry(spawn, mapId, 5);
-                    if (fakechar != null) {
-                        characterIds.add(fakechar.getId());
-                    } else {
-                        failureCount.incrementAndGet();
-                        debugprint(fmt("Failed to create bot at point {} after retries", spawn));
-                    }
-                } catch (Exception e) {
-                    failureCount.incrementAndGet();
-                    debugprint(fmt("Exception creating bot at {}: {}", spawn, e.getMessage()));
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-
-        // Wait for all spawns to complete with timeout
-        try {
-            boolean completed = latch.await(120, TimeUnit.SECONDS);
-            if (!completed) {
-                debugprint(fmt("Timeout waiting for bot spawns. Completed: {}/{}",
-                        characterIds.size(), numBots));
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            debugprint("Bot spawning interrupted");
-        }
-
-        if (failureCount.get() > 0) {
-            debugprint(fmt("Spawning complete. Success: {}, Failed: {}",
-                    characterIds.size(), failureCount.get()));
-        }
-
-        return new ArrayList<>(characterIds);
-    }
-
-
-    public static List<Integer> spawnBotsOnMapOnPlatformInRadius(int numBots, int mapId, String platform_id, Point center, int radius) {
-        Platform flatPlatform = PlatformParser.parsePlatform(mapId, platform_id);
-        List<Point> occupied = Collections.synchronizedList(new ArrayList<>());
-        ConcurrentLinkedQueue<Integer> characterIds = new ConcurrentLinkedQueue<>();
-        AtomicInteger failureCount = new AtomicInteger(0);
-
-        debugprint(fmt("Spawning {} bots on {} at platform: {} within radius {} of ({},{})",
-                numBots, mapId, platform_id, radius, center.x, center.y));
-
-        // Pre-generate all spawn points within radius
-        List<Point> spawnPoints = new ArrayList<>();
-        for (int i = 0; i < numBots; i++) {
-            Point spawn = findUnoccupiedPointInRadius(flatPlatform, occupied, center, radius);
-            if (spawn == null) {
-                debugprint(fmt("Could not find unoccupied point for bot {} within radius", i));
-                continue;
-            }
-            occupied.add(spawn);
-            spawnPoints.add(spawn);
-        }
-
-        CountDownLatch latch = new CountDownLatch(spawnPoints.size());
-
-        for (Point spawn : spawnPoints) {
-            ExecutorServiceManager.runAsync(() -> {
-                try {
-                    Character fakechar = createBotWithRetry(spawn, mapId, 5);
-                    if (fakechar != null) {
-                        characterIds.add(fakechar.getId());
-                    } else {
-                        failureCount.incrementAndGet();
-                        debugprint(fmt("Failed to create bot at point {} after retries", spawn));
-                    }
-                } catch (Exception e) {
-                    failureCount.incrementAndGet();
-                    debugprint(fmt("Exception creating bot at {}: {}", spawn, e.getMessage()));
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-
-        try {
-            boolean completed = latch.await(120, TimeUnit.SECONDS);
-            if (!completed) {
-                debugprint(fmt("Timeout waiting for bot spawns. Completed: {}/{}",
-                        characterIds.size(), spawnPoints.size()));
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            debugprint("Bot spawning interrupted");
-        }
-
-        if (failureCount.get() > 0) {
-            debugprint(fmt("Spawning complete. Success: {}, Failed: {}",
-                    characterIds.size(), failureCount.get()));
-        }
-
-        return new ArrayList<>(characterIds);
-    }
-
-    public static List<Integer> spawnFillerBots(int numBots, int mapId, Point p1, Point p2) {
-        int minX = Math.min(p1.x, p2.x);
-        int maxX = Math.max(p1.x, p2.x);
-        int baseY = p1.y;
-        Platform adHocPlatform = new Platform(minX, maxX, baseY, List.of(p1, p2), Platform.Type.FLAT);
-
-        List<Point> occupied = Collections.synchronizedList(new ArrayList<>());
-        ConcurrentLinkedQueue<Integer> characterIds = new ConcurrentLinkedQueue<>();
-        AtomicInteger failureCount = new AtomicInteger(0);
-
-        debugprint(fmt("Spawning {} filler bots between ({},{}) and ({},{}) on map {}",
-                numBots, p1.x, p1.y, p2.x, p2.y, mapId));
-
-        List<Point> spawnPoints = findUnoccupiedPoints(adHocPlatform, occupied, numBots);
-        occupied.addAll(spawnPoints);
-
-        CountDownLatch latch = new CountDownLatch(spawnPoints.size());
-        double chairChance = 0.20;
-
-        for (Point spawn : spawnPoints) {
-            ExecutorServiceManager.runAsync(() -> {
-                try {
-                    Character fakechar = createBotWithRetry(spawn, mapId, 5);
-                    if (fakechar != null) {
-                        characterIds.add(fakechar.getId());
-                        if (Math.random() < chairChance) {
-                            // Sit only after the spawn drop-down/turn-around finishes
-                            ExecutorServiceManager.getScheduledExecutorService().schedule(
-                                    () -> botSitChair(fakechar, getRandomChairId()),
-                                    BotGeneration.SPAWN_CHOREOGRAPHY_MAX_MS + 500, TimeUnit.MILLISECONDS);
-                        }
-                    } else {
-                        failureCount.incrementAndGet();
-                        debugprint(fmt("Failed to create filler bot at point {} after retries", spawn));
-                    }
-                } catch (Exception e) {
-                    failureCount.incrementAndGet();
-                    debugprint(fmt("Exception creating filler bot at {}: {}", spawn, e.getMessage()));
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-
-        try {
-            boolean completed = latch.await(120, TimeUnit.SECONDS);
-            if (!completed) {
-                debugprint(fmt("Timeout waiting for filler bot spawns. Completed: {}/{}",
-                        characterIds.size(), spawnPoints.size()));
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            debugprint("Filler bot spawning interrupted");
-        }
-
-        if (failureCount.get() > 0) {
-            debugprint(fmt("Filler spawning complete. Success: {}, Failed: {}",
-                    characterIds.size(), failureCount.get()));
-        }
-
-        debugprint(fmt("Filler bots spawned: {}", characterIds.size()));
-        return new ArrayList<>(characterIds);
-    }
-
-    public static List<Integer> spawnFillerBotsLockedY(int numBots, int mapId, Point p1, Point p2) {
-        int minX = Math.min(p1.x, p2.x);
-        int maxX = Math.max(p1.x, p2.x);
-        int baseY = p1.y;
-        Platform adHocPlatform = new Platform(minX, maxX, baseY, List.of(p1, p2), Platform.Type.FLAT);
-
-        List<Point> occupied = Collections.synchronizedList(new ArrayList<>());
-        ConcurrentLinkedQueue<Integer> characterIds = new ConcurrentLinkedQueue<>();
-        AtomicInteger failureCount = new AtomicInteger(0);
-
-        debugprint(fmt("Spawning {} filler bots (locked Y={}) between x={} and x={} on map {}",
-                numBots, baseY, minX, maxX, mapId));
-
-        List<Point> spawnPoints = findUnoccupiedPoints(adHocPlatform, occupied, numBots);
-        for (Point sp : spawnPoints) {
-            sp.y = baseY;
-        }
-        occupied.addAll(spawnPoints);
-
-        CountDownLatch latch = new CountDownLatch(spawnPoints.size());
-        double chairChance = 0.20;
-
-        for (Point spawn : spawnPoints) {
-            ExecutorServiceManager.runAsync(() -> {
-                try {
-                    Character fakechar = createBotWithRetry(spawn, mapId, 5);
-                    if (fakechar != null) {
-                        characterIds.add(fakechar.getId());
-                        if (Math.random() < chairChance) {
-                            // Sit only after the spawn drop-down/turn-around finishes
-                            ExecutorServiceManager.getScheduledExecutorService().schedule(
-                                    () -> botSitChair(fakechar, getRandomChairId()),
-                                    BotGeneration.SPAWN_CHOREOGRAPHY_MAX_MS + 500, TimeUnit.MILLISECONDS);
-                        }
-                    } else {
-                        failureCount.incrementAndGet();
-                        debugprint(fmt("Failed to create filler bot at point {} after retries", spawn));
-                    }
-                } catch (Exception e) {
-                    failureCount.incrementAndGet();
-                    debugprint(fmt("Exception creating filler bot at {}: {}", spawn, e.getMessage()));
-                } finally {
-                    latch.countDown();
-                }
-            });
-        }
-
-        try {
-            boolean completed = latch.await(120, TimeUnit.SECONDS);
-            if (!completed) {
-                debugprint(fmt("Timeout waiting for filler bot spawns. Completed: {}/{}",
-                        characterIds.size(), spawnPoints.size()));
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            debugprint("Filler bot spawning interrupted");
-        }
-
-        if (failureCount.get() > 0) {
-            debugprint(fmt("Filler spawning complete. Success: {}, Failed: {}",
-                    characterIds.size(), failureCount.get()));
-        }
-
-        debugprint(fmt("Filler bots spawned (locked Y): {}", characterIds.size()));
-        return new ArrayList<>(characterIds);
-    }
-
-    private static Point findUnoccupiedPointInRadius(Platform platform, List<Point> occupied, Point center, int radius) {
-        int maxAttempts = 100;
-        for (int i = 0; i < maxAttempts; i++) {
-            Point candidate = findUnoccupiedPoint(platform, occupied);
-            if (Math.abs(candidate.x - center.x) <= radius && Math.abs(candidate.y - center.y) <= radius) {
-                return candidate;
-            }
-        }
-        return null;
-    }
-
-
-    private static Character createBotWithRetry(Point spawn, int mapId, int maxRetries) {
-        for (int attempt = 1; attempt <= maxRetries; attempt++) {
-            try {
-                Character fakechar = createBotPollReadiness(spawn, mapId);
-                if (fakechar != null) {
-                    return fakechar;
-                }
-                // If null but no exception, brief pause before retry
-                if (attempt < maxRetries) {
-                    Thread.sleep(200 * attempt); // Exponential-ish backoff
-                }
-            } catch (Exception e) {
-                debugprint(fmt("Attempt {}/{} failed for bot at {}: {}",
-                        attempt, maxRetries, spawn, e.getMessage()));
-                if (attempt < maxRetries) {
-                    try {
-                        Thread.sleep(200 * attempt);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        return null;
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    public static void botMoveToPlatformAnyUnoccupiedSpot(Character fakechar, String platform) {
-        int mapId = fakechar.getMapId();
-
-        // todo verify platform name exists in mapId
-
-        List<Point> occupiedPointsOnPlatform = getListOfCharacterCoordinates(getAllCharsOnPlatform(mapId, platform));
-        Platform flatPlatform = PlatformParser.parsePlatform(mapId, platform);
-        Point unoccupiedPt = findUnoccupiedPoint(flatPlatform, occupiedPointsOnPlatform);
-        MovementCommands.pathFinderBeta(fakechar, unoccupiedPt);
-    }
-
-    public static void botMoveToPlatformAnyUnoccupiedSpotAware(Character fakechar, String platform) {
-        int mapId = fakechar.getMapId();
-
-        List<Point> occupiedPointsOnPlatform = getListOfCharacterCoordinates(getAllCharsOnPlatform(mapId, platform));
-        Platform flatPlatform = PlatformParser.parsePlatform(mapId, platform);
-        Point unoccupiedPt = findUnoccupiedPoint(flatPlatform, occupiedPointsOnPlatform);
-        MovementCommands.pathFinderAware(fakechar, unoccupiedPt);
-    }
-
-    /**
-     * Determines which platform a character is currently standing on.
-     * <p>
-     * Scans all platform CSV files for the character's map and finds the best match
-     * based on position proximity. For flat platforms, checks if X is within bounds
-     * and Y is close to baseY. For sloped platforms, uses interpolation to estimate
-     * the expected Y at the character's X position.
-     *
-     * @param chr The character whose platform we want to find
-     * @return The platform identifier (e.g., "m1", "m2") or null if not on any known platform
-     */
-    public static String getCurrentPlatform(Character chr) {
-        Point currentPosition = chr.getPosition();
-        int mapId = chr.getMapId();
-        String platform = findPlatformAtPosition(mapId, currentPosition);
-        //debugprint("MapID: ", mapId, "Platform: ", platform);
-        return platform;
-    }
-
-    /**
-     * Finds which platform a given position belongs to on a specific map.
-     *
-     * @param mapId    The map ID to search
-     * @param position The position to check
-     * @return The platform identifier or null if not found
-     */
-    public static String findPlatformAtPosition(int mapId, Point position) {
-        List<String> platformIds = getAvailablePlatformIds(mapId);
-
-        if (platformIds.isEmpty()) {
-            return null;
-        }
-
-        String bestMatch = null;
-        int bestScore = Integer.MAX_VALUE;
-
-        for (String platformId : platformIds) {
-            Platform platform = PlatformParser.parsePlatform(mapId, platformId);
-
-            if (platform == null || platform.getSortedPoints().isEmpty()) {
-                continue;
-            }
-
-            int score = calculatePlatformMatchScore(platform, position);
-
-            // Score of -1 means position is definitely not on this platform
-            if (score >= 0 && score < bestScore) {
-                bestScore = score;
-                bestMatch = platformId;
-            }
-        }
-
-        return bestMatch;
-    }
-
-    /**
-     * Calculates how well a position matches a platform.
-     * Lower score = better match. Returns -1 if position is definitely not on the platform.
-     *
-     * @param platform The platform to check against
-     * @param position The position to evaluate
-     * @return Match score (lower is better) or -1 if not a match
-     */
-    private static int calculatePlatformMatchScore(Platform platform, Point position) {
-        int x = position.x;
-        int y = position.y;
-
-        // Check if X is within platform bounds (with tolerance)
-        if (x < platform.getMinX() - X_TOLERANCE || x > platform.getMaxX() + X_TOLERANCE) {
-            return -1; // Definitely not on this platform
-        }
-
-        // Get the expected Y at this X position
-        int expectedY = platform.getYAtX(x);
-        int yDifference = Math.abs(y - expectedY);
-
-        // If Y difference is too large, not on this platform
-        if (yDifference > Y_TOLERANCE) {
-            return -1;
-        }
-
-        // Score is based on how close we are to the expected Y
-        // Also factor in how well we're within the X bounds (prefer being solidly within bounds)
-        int xDistanceFromCenter = Math.abs(x - (platform.getMinX() + platform.getMaxX()) / 2);
-
-        // Combined score: Y accuracy is more important, X centering is secondary
-        return yDifference * 10 + (xDistanceFromCenter / 10);
-    }
-
-    /**
-     * Gets all available platform IDs for a given map by scanning the directory.
-     *
-     * @param mapId The map ID
-     * @return List of platform IDs (e.g., ["m1", "m2", "m3"])
-     */
-    public static List<String> getAvailablePlatformIds(int mapId) {
-        List<String> platformIds = new ArrayList<>();
-        File mapDir = new File(BASE_PATH + "/map" + mapId);
-
-        if (!mapDir.exists() || !mapDir.isDirectory()) {
-            return platformIds;
-        }
-
-        File[] files = mapDir.listFiles((dir, name) -> name.endsWith(".csv"));
-
-        if (files != null) {
-            for (File file : files) {
-                String name = file.getName();
-                // Remove .csv extension to get platform ID
-                platformIds.add(name.substring(0, name.length() - 4));
-            }
-        }
-        //debugprint("MapID", mapId, "Platform ids: ", platformIds);
-        return platformIds;
-    }
-
-    public static List<String> getMainPlatformIds(int mapId) {
-        return getAvailablePlatformIds(mapId).stream()
-                .filter(id -> id.startsWith("m"))
-                .collect(Collectors.toList());
-    }
-
-    public static List<String> getConnectorPlatformIds(int mapId) {
-        return getAvailablePlatformIds(mapId).stream()
-                .filter(id -> id.startsWith("c"))
-                .collect(Collectors.toList());
-    }
-
-    /**
-     * Gets all characters standing on a specific platform.
-     * <p>
-     * Cross-references all characters on the map against the platform's coordinate bounds.
-     * Since platform coordinates are guide points (not every possible position), this method
-     * uses interpolation and tolerance values to determine if a character is on the platform.
-     *
-     * @param mapId      The map ID
-     * @param platformId The platform identifier (e.g., "m1")
-     * @return List of characters currently on the specified platform
-     */
-    public static List<Character> getAllCharsOnPlatform(int mapId, String platformId) {
-        List<Character> allCharsOnMap = getAllCharsOnMap(mapId);
-        List<Character> charsOnPlatform = new ArrayList<>();
-
-        Platform platform = PlatformParser.parsePlatform(mapId, platformId);
-
-        if (platform == null || platform.getSortedPoints().isEmpty()) {
-            return charsOnPlatform;
-        }
-
-        for (Character chr : allCharsOnMap) {
-            if (isCharacterOnPlatform(chr, platform)) {
-                charsOnPlatform.add(chr);
-            }
-        }
-        //debugprint("CharsOnPlatform: ", charsOnPlatform, charsOnPlatform.size());
-        return charsOnPlatform;
-    }
-
-    /**
-     * Checks if a character is standing on a specific platform.
-     *
-     * @param chr      The character to check
-     * @param platform The platform to check against
-     * @return true if the character is on the platform, false otherwise
-     */
-    public static boolean isCharacterOnPlatform(Character chr, Platform platform) {
-        Point position = chr.getPosition();
-        return isPositionOnPlatform(position, platform);
-    }
-
-    /**
-     * Checks if a position is on a specific platform.
-     * <p>
-     * For FLAT platforms: checks if X is within bounds and Y matches baseY (within tolerance).
-     * For SLOPED platforms: checks if X is within bounds and Y matches the interpolated Y at that X.
-     *
-     * @param position The position to check
-     * @param platform The platform to check against
-     * @return true if the position is on the platform
-     */
-    public static boolean isPositionOnPlatform(Point position, Platform platform) {
-        int x = position.x;
-        int y = position.y;
-
-        // Check X bounds with tolerance
-        if (x < platform.getMinX() - X_TOLERANCE || x > platform.getMaxX() + X_TOLERANCE) {
-            return false;
-        }
-
-        // Get expected Y at this X position (handles both flat and sloped)
-        int expectedY = platform.getYAtX(x);
-
-        // Check if actual Y is close enough to expected Y
-        return Math.abs(y - expectedY) <= Y_TOLERANCE;
-    }
-
-    public static List<Character> getAllCharsOnMap(int mapId) {
-        MapleMap map = getMapleMapById(mapId);
-        return map.getAllPlayers();
-    }
-
-    public static List<Point> getCoordinatesOfAllCharsOnMap(int mapId) {
-        return getListOfCharacterCoordinates(getAllCharsOnMap(mapId));
-    }
-
-    public static List<Point> getListOfCharacterCoordinates(List<Character> chars) {
-        List<Point> characterCoords = new ArrayList<>();
-        for (Character chr : chars) {
-            characterCoords.add(chr.getPosition());
-        }
-        return characterCoords;
-    }
 }

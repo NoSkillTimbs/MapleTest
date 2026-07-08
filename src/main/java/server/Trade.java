@@ -401,6 +401,16 @@ public class Trade {
 
             partner.getChr().setTrade(null);
             chr.setTrade(null);
+            clearBotTradeQueue(partner.getChr());
+            clearBotTradeQueue(chr);
+        }
+    }
+
+    // Whenever a bot's trade dies, its BotTradeQueue entry (added in inviteTrade) must die with it.
+    // A stale entry NPEs the bot's next checkTradeQueue tick and blocks all future trade invites.
+    private static void clearBotTradeQueue(Character chr) {
+        if (isBot(chr)) {
+            BotTradeQueue.getInstance().removeTradeRequest(chr);
         }
     }
 
@@ -415,11 +425,13 @@ public class Trade {
             debugprint("canceling", trade.getPartner().getChr().getName());
             trade.getPartner().cancel(partnerResult);
             trade.getPartner().getChr().setTrade(null);
+            clearBotTradeQueue(trade.getPartner().getChr());
 
             InviteCoordinator.answerInvite(InviteType.TRADE, trade.getChr().getId(), trade.getPartner().getChr().getId(), false);
             InviteCoordinator.answerInvite(InviteType.TRADE, trade.getPartner().getChr().getId(), trade.getChr().getId(), false);
         }
         chr.setTrade(null);
+        clearBotTradeQueue(chr);
     }
 
     private static byte[] tradeResultsPair(byte result) {
@@ -574,10 +586,12 @@ public class Trade {
 
                 other.getTrade().cancel(TradeResult.PARTNER_CANCEL.getValue());
                 other.setTrade(null);
+                clearBotTradeQueue(other);
 
             }
             trade.cancel(TradeResult.NO_RESPONSE.getValue());
             chr.setTrade(null);
+            clearBotTradeQueue(chr);
         }
     }
 

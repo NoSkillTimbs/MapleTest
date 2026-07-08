@@ -95,8 +95,10 @@ public class WarpCommands {
         return warpMap.getPortal(arrowName);
     }
 
+    // Deliberate synchronous choreography: fake portal lag, then a blocking
+    // recording replay. Part of the spawn/warp arrival scripts that hold their thread.
     public static void botEnterPortalDropDown(Character fakechar, int variablePortalLag) {
-        BotHelpers.sleepAmountSeconds(variablePortalLag);
+        BotHelpers.blockingSleep(variablePortalLag);
         String recName = "portalenterdrop";
 //        List<MovementPacket> mvp = readPacketsFromFile(0, recName);
         MovementRecording mvr = getMovementRecording(0, recName);

@@ -150,6 +150,8 @@ import server.partyquest.MonsterCarnivalParty;
 import server.partyquest.PartyQuest;
 import server.quest.Quest;
 import soloMapling.ArtificialPlayer.BotTier;
+import soloMapling.server.EventMessageSystem.EventBus;
+import soloMapling.server.EventMessageSystem.EventFactory;
 import tools.DatabaseConnection;
 import tools.LongTool;
 import tools.PacketCreator;
@@ -3161,6 +3163,7 @@ public class Character extends AbstractCharacterObject {
             if (show) {
                 announceExpGain(gain, equip, party, inChat, white);
             }
+            int levelBefore = level;
             while (exp.get() >= ExpTable.getExpNeededForLevel(level)) {
                 levelUp(true);
                 if (level == getMaxLevel()) {
@@ -3168,6 +3171,12 @@ public class Character extends AbstractCharacterObject {
                     updateSingleStat(Stat.EXP, 0);
                     break;
                 }
+            }
+            if (level > levelBefore) {
+                // SoloMapling: announce the level-up so nearby bots can react (congrats). Published
+                // once at the final level to avoid a burst on multi-level gains. Bots are NOT excluded
+                // here (unlike MAP_ENTERED) - we want bot level-ups celebrated too.
+                EventBus.getInstance().publish(EventFactory.createLevelUpEvent(this));
             }
 
             if (leftover > 0) {
@@ -5290,6 +5299,37 @@ public class Character extends AbstractCharacterObject {
 
     public int getTotalStr() {
         return localstr;
+    }
+
+    // ── GCMoveSystem (GreenCat dynamic movement): total move-speed / jump stat.
+    // base 100 + equip bonuses + active buff. Feeds BotMovementProfile.fromCharacter
+    // which selects the baked nav-graph profile bucket.
+    public int getTotalMoveSpeedStat() {
+        int total = 100;
+        for (Item item : getInventory(InventoryType.EQUIPPED)) {
+            if (item instanceof Equip equip) {
+                total += equip.getSpeed();
+            }
+        }
+        Integer speedBuff = getBuffedValue(BuffStat.SPEED);
+        if (speedBuff != null) {
+            total += speedBuff;
+        }
+        return Math.max(1, total);
+    }
+
+    public int getTotalJumpStat() {
+        int total = 100;
+        for (Item item : getInventory(InventoryType.EQUIPPED)) {
+            if (item instanceof Equip equip) {
+                total += equip.getJump();
+            }
+        }
+        Integer jumpBuff = getBuffedValue(BuffStat.JUMP);
+        if (jumpBuff != null) {
+            total += jumpBuff;
+        }
+        return Math.max(1, total);
     }
 
     public int getTotalDex() {

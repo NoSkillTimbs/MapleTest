@@ -4,6 +4,8 @@ import client.Character;
 import client.Client;
 import client.Job;
 import server.maps.MapleMap;
+import soloMapling.ArtificialPlayer.BotAttackSystem.BotBuffDriver;
+import soloMapling.ArtificialPlayer.BotBuffRequestSystem.BotBuffRequestHandler;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
 import soloMapling.server.SoloMaplingConstants;
 import soloMapling.server.SoloMaplingUtilities;
@@ -70,6 +72,15 @@ public class BotGeneration {
     }
 
     public static int createBot(Point pos, MapleMap map) {
+        return createBot(pos, map, 0, 0, 0);
+    }
+
+    public static int createBot(Point pos, MapleMap map, int baseClass, int minLevel, int maxLevel) {
+        return createBot(pos, map, baseClass, minLevel, maxLevel, 0);
+    }
+
+    // forcedJobId > 0 pins the exact job (GM 'trainhere' test spawn); 0 = a random job for the class.
+    public static int createBot(Point pos, MapleMap map, int baseClass, int minLevel, int maxLevel, int forcedJobId) {
         int cid = 2; // CID 2 = Base Bot Character
 
         Character bot = null;
@@ -85,7 +96,11 @@ public class BotGeneration {
         placeBotOnMap(bot, pos, map);
         // Decorate before the drop-down plays so the bot arrives fully dressed
         // (decoration is an in-memory cache lookup, takes microseconds).
-        setBotVariables(bot);
+        if (baseClass <= 0) {
+            setBotVariables(bot);
+        } else {
+            setBotVariables(bot, baseClass, minLevel, maxLevel, forcedJobId);
+        }
         // Choreography sleeps ~2.5-6s in total; play it on a virtual thread so
         // mass spawning isn't gated on each bot's arrival animation. Drop-down ->
         // turn-around ordering is preserved because it's one sequential task.
@@ -131,14 +146,14 @@ public class BotGeneration {
      */
     private static void playSpawnChoreography(Character fakechar) {
         long dropDelayMs = ThreadLocalRandom.current().nextLong(500, 1201);
-        if (!BotHelpers.sleepAmountSeconds(dropDelayMs)) return;
+        if (!BotHelpers.blockingSleep(dropDelayMs)) return;
         botEnterPortalDropDown(fakechar);
 
         // Bots spawn facing right by default, so a 50% roll to flip to left gives
         // roughly even left/right distribution without a no-op right-turn.
         if (ThreadLocalRandom.current().nextBoolean()) {
             long turnDelayMs = ThreadLocalRandom.current().nextLong(1000, 1501);
-            if (!BotHelpers.sleepAmountSeconds(turnDelayMs)) return;
+            if (!BotHelpers.blockingSleep(turnDelayMs)) return;
             microTurnAroundToLeft(fakechar);
         }
     }
@@ -170,6 +185,8 @@ public class BotGeneration {
         channel.removePlayer(fakechar);
         world.getPlayerStorage().removePlayer(fakechar.getId());
         CharacterStorage.removeActiveBot(fakechar.getId());//
+        BotBuffDriver.clearBot(fakechar.getId());   // Phase 3a: release buff recast timers
+        BotBuffRequestHandler.clearBot(fakechar.getId());   // release chat-buff-request cooldown
     }
 
     private static void addBotToServer(Character fakechar) {

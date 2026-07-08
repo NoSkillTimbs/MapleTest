@@ -10,6 +10,7 @@ import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.ChatMessage;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
 import soloMapling.ArtificialPlayer.BotSM;
+import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.FreeMarket.HiredMerchantAdapter;
 import soloMapling.FreeMarket.PlayerShopAdapter;
 import soloMapling.FreeMarket.ShopKeeper;
@@ -28,16 +29,14 @@ import java.util.Random;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.WarpCommands.FMRoomWarpPortalId;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.WarpCommands.botEnterFMRoom;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.WarpCommands.botExitFMRoom;
-import static soloMapling.ArtificialPlayer.BotDialogueHandler.getRandomDialogueLine;
+import static soloMapling.ArtificialPlayer.BotDialogueHandler.getRandomResolvedLine;
 import static soloMapling.server.SoloMaplingUtilities.generateRandomNumber;
 import static soloMapling.ArtificialPlayer.BotHelpers.convertItemIdToName;
 import static soloMapling.ArtificialPlayer.BotLogic.isInsideFM;
 import static soloMapling.ArtificialPlayer.BotLogic.isInsideFMRooms;
 import static soloMapling.ArtificialPlayer.BotLogic.isPointNear;
-import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.BotMoveSmallDistanceX;
-import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.pathFinderBeta;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementStructures.MovementEnums.FreeMarketValues.FM_ENTRANCE;
-import static soloMapling.ArtificialPlayer.BotMovementSystem.NavigationSystem.FMMovementCommands.moveToFMDoor;
+import static soloMapling.ArtificialPlayer.BotMovementSystem.NavigationSystem.FMMovementCommands.getDoorPoint;
 import static soloMapling.BotLogger.log;
 
 public class FMBot extends BotSM {
@@ -60,6 +59,14 @@ public class FMBot extends BotSM {
     private static final double BASE_WALK_CHANCE = 0.40;
     private static final double WALK_CHANCE_INCREMENT = 0.10;
     private double walkChance = BASE_WALK_CHANCE;
+
+    // GC moves are fire-and-forget, so arrival is polled from the FSM tick. The driver abandons
+    // stuck/unreachable moves (isMoving goes false), so bounded counters are enough to guarantee
+    // the FSM can never wedge on a walk that won't finish.
+    private static final int MAX_DOOR_WALK_ATTEMPTS = 3;
+    private static final int MAX_SHOP_ARRIVAL_POLLS = 8;
+    private int doorWalkAttempts = 0;
+    private int shopArrivalPolls = 0;
 
     public FMBot(Character character) {
         super(character);
@@ -88,16 +95,31 @@ public class FMBot extends BotSM {
         evaluateFMRoom();
     }
 
+    // Self-looping: NAV_TO_FM_ROOM re-enters here every tick until the bot is inside the room.
     private void navToFMRoom() {
         if (isInsideFMRooms(this.getChr())) { // already inside FM room
+            doorWalkAttempts = 0;
             return;
         }
         if (!isInsideFM(this.getChr())) {
-            botExitFMRoom(getChr(), 1);
+            botExitFMRoom(getChr(), 1); // warp to the FM entrance; start the door walk next tick
+            waitFor(1000);
+            return;
         }
-        moveToFMDoor(this.getChr(), this.fmRoom);
-        BotHelpers.sleepAmountSeconds(1500);
-        botEnterFMRoom(this.getChr(), this.fmRoom);
+        Point doorPt = getDoorPoint(this.fmRoom);
+        if (isPointNear(this.getChr().getPosition(), doorPt, 20) || doorWalkAttempts >= MAX_DOOR_WALK_ATTEMPTS) {
+            // at the door - or the walk keeps dying, so enter anyway (the old code's timed warp
+            // entered regardless of where the walk actually ended too)
+            doorWalkAttempts = 0;
+            botEnterFMRoom(this.getChr(), this.fmRoom);
+            waitFor(1500); // settle beat so PROCESS_ROOM reads the room's shops, not the entrance
+            return;
+        }
+        if (!GCMovement.isMoving(getChr())) { // not started yet, or the last attempt was abandoned
+            doorWalkAttempts++;
+            GCMovement.move(getChr(), doorPt.x, doorPt.y);
+        }
+        // still walking - stay in NAV_TO_FM_ROOM and re-check on the next tick
     }
 
     private void processRoom() {
@@ -228,7 +250,8 @@ public class FMBot extends BotSM {
             if (shouldWalk) {
                 walkChance = BASE_WALK_CHANCE;
                 Point pos = BotHelpers.getRandomizedPointXAxis(currentTarget.getPosition());
-                pathFinderBeta(this.getChr(), pos);
+                GCMovement.move(this.getChr(), pos.x, pos.y);
+                shopArrivalPolls = 0; // ENTER_SHOP holds until this walk lands
             } else {
                 walkChance = Math.min(1.0, walkChance + WALK_CHANCE_INCREMENT);
             }
@@ -263,7 +286,7 @@ public class FMBot extends BotSM {
             return;
         }
         purchaseShopItems();
-        BotHelpers.sleepAmountSeconds(1000);
+        waitFor(1000); // browse beat before moving on to EXIT_SHOP
     }
 
     private List<PlayerShopItem> readShopItems() {
@@ -297,8 +320,10 @@ public class FMBot extends BotSM {
             Integer itemMarketValue = ItemUtilities.getItemMarketValue(thisItem);
             Boolean purchase = shouldPurchaseItem(itemPrice, itemMarketValue);
             if (purchase) {
-                String buymsg = getRandomDialogueLine(FMBot.this, "PurchaseItem");
-                currentTarget.chat(getChr(), buymsg);
+                String buymsg = getRandomResolvedLine(FMBot.this, "PurchaseItem");
+                if (buymsg != null) {
+                    currentTarget.chat(getChr(), buymsg);
+                }
                 if (currentTarget instanceof HiredMerchantAdapter) {
                     currentTarget.botBuyItem(getChr(), pItem, (short) 1);
                 } else if (currentTarget instanceof PlayerShopAdapter) {
@@ -318,19 +343,26 @@ public class FMBot extends BotSM {
         currentTarget = null;
     }
 
-    private void exitRoom() {
+    // Walks to the room's door portal, then warps out. Returns true once out of the room
+    // (or immediately on a degenerate room id) so EXIT_FM_ROOM knows to advance.
+    private boolean exitRoom() {
         int roomNumber = getChr().getMapId() - FM_ENTRANCE;
         if (roomNumber < 1 || !FMRoomWarpPortalId.containsKey(roomNumber)) {
             incrementFMRoom();
-            return;
+            return true;
         }
         Point doorPoint = getFMRoomDoorPortalPoint();
-        pathFinderBeta(getChr(), doorPoint);
-        if (!isPointNear(this.getChr().getPosition(), doorPoint, 20)) {
-            BotMoveSmallDistanceX(this.getChr(), doorPoint);
+        if (!isPointNear(this.getChr().getPosition(), doorPoint, 20) && doorWalkAttempts < MAX_DOOR_WALK_ATTEMPTS) {
+            if (!GCMovement.isMoving(getChr())) { // not started yet, or the last attempt was abandoned
+                doorWalkAttempts++;
+                GCMovement.move(getChr(), doorPoint.x, doorPoint.y);
+            }
+            return false; // still walking to the door - re-check on the next tick
         }
+        doorWalkAttempts = 0;
         botExitFMRoom(getChr(), fmRoom);
         incrementFMRoom();
+        return true;
     }
 
     private void evaluateFMRoom() {
@@ -395,7 +427,9 @@ public class FMBot extends BotSM {
                 break;
             case NAV_TO_FM_ROOM:
                 navToFMRoom();
-                setFMBotState(FMBotState.PROCESS_ROOM);
+                if (isInsideFMRooms(this.getChr())) {
+                    setFMBotState(FMBotState.PROCESS_ROOM);
+                }
                 break;
             case PROCESS_ROOM:
                 processRoom();
@@ -414,6 +448,9 @@ public class FMBot extends BotSM {
                 setFMBotState(FMBotState.ENTER_SHOP);
                 break;
             case ENTER_SHOP:
+                if (GCMovement.isMoving(getChr()) && shopArrivalPolls++ < MAX_SHOP_ARRIVAL_POLLS) {
+                    return; // still walking to the shop - re-check on the next tick
+                }
                 enterShop();
                 setFMBotState(FMBotState.PROCESS_SHOP);
                 break;
@@ -430,8 +467,9 @@ public class FMBot extends BotSM {
                 setFMBotState(FMBotState.BROWSING_ROOM);
                 break;
             case EXIT_FM_ROOM:
-                exitRoom();
-                setFMBotState(FMBotState.NAV_TO_FM_ROOM);
+                if (exitRoom()) {
+                    setFMBotState(FMBotState.NAV_TO_FM_ROOM);
+                }
                 break;
             default:
                 log("Unexpected state: " + fmBotState);

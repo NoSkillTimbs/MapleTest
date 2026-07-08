@@ -222,12 +222,14 @@ public class DropCommands {
         }
     }
 
+    // Deliberate blocking leaf primitive: per-item pickup stagger, item count is
+    // data-driven. Callers (blackjack payouts, loot scripts) rely on the hold.
     public static void lootItemListOnFloor(Character fakechar, List<MapObject> items) {
         for (MapObject item : items) {
             MapItem mapItem = (MapItem) item;
             final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
             fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
-            BotHelpers.sleepAmountSeconds(100);
+            BotHelpers.blockingSleep(100);
         }
     }
 
@@ -235,6 +237,44 @@ public class DropCommands {
         List<MapObject> itemsOnFloor = checkForItemsOnFloor(chr, chr.getPosition(), 10000, itemsToLoot);
         if (!itemsOnFloor.isEmpty()) {
             DropCommands.lootItemListOnFloor(chr, itemsOnFloor);
+        }
+    }
+
+    // Owner-protected drops (drop type != 2) become free-for-all after this long; matches vanilla.
+    private static final long FFA_OWNER_PROTECT_MS = 15000;
+
+    // True when a bot is entitled to loot this drop: its own drops, or a free-for-all drop (spawned with
+    // no owner, or whose owner-protection window has expired). Lets bots grab their kills plus loot a real
+    // player left on the floor, without stealing another player's still-protected drop.
+    public static boolean botCanLoot(Character fakechar, MapItem mapItem) {
+        if (mapItem == null || mapItem.isPickedUp() || mapItem.getPosition() == null) {
+            return false;
+        }
+        if (mapItem.getOwnerId() == fakechar.getId()) {
+            return true; // the bot's own drop
+        }
+        return mapItem.getDropType() == 2
+                || System.currentTimeMillis() - mapItem.getDropTime() >= FFA_OWNER_PROTECT_MS;
+    }
+
+    // Pick up one specific drop (organic single-item loot, paced by the caller for a natural look).
+    public static void botLootSingleDrop(Character fakechar, MapItem mapItem) {
+        if (mapItem == null || mapItem.isPickedUp()) {
+            return;
+        }
+        final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
+        fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
+    }
+
+    // Sweep all drops the bot is entitled to (own + free-for-all) within range. Used as a tidy-up when a
+    // bot leaves a spot so it doesn't trail a pile; for in-combat looting use the staggered single pickups.
+    public static void botLootOwnAndFreeForAll(Character fakechar, Point itemLocation, double range) {
+        List<MapObject> items = fakechar.getMap().getMapObjectsInRange(itemLocation, range, Arrays.asList(MapObjectType.ITEM));
+        for (MapObject item : items) {
+            MapItem mapItem = (MapItem) item;
+            if (botCanLoot(fakechar, mapItem)) {
+                botLootSingleDrop(fakechar, mapItem);
+            }
         }
     }
 

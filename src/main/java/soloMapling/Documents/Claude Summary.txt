@@ -14,16 +14,18 @@
 
   Bot State Machine (BotSM)
   The foundation of everything. An abstract state machine with states: IDLE -> RUNNING -> PAUSE -> TRADING -> FINISHED.
-  Each bot runs on a scheduled executor thread that fires every 2-6 seconds (randomized jitter). When real players are
-  present, the scheduler speeds up; when alone, it slows down to conserve resources. All specialized bot types extend
-  this class and override the update logic.
+  Since 2026-07 no bot owns a thread: all macro ticks ride the central BotTickService wheel (server/BotTickService.java),
+  which dispatches each due bot's updateState() onto a virtual thread. Observed bots tick every 2-6 seconds (randomized
+  jitter); unobserved bots slow to 9-12s (deep-background types slower still), driven by ObserverTracker. FSM code never
+  Thread.sleeps - pacing uses BotSM.waitFor or BotTiming. All specialized bot types extend this class and override the
+  update logic.
 
   ---
   Major Subsystems
 
   1. Bot Types & Factory (BotTypeManager, BotTypes/)
-  Fifteen concrete bot personalities, each with distinct state machines and behavioral loops. A factory pattern
-  instantiates them by type enum:
+  Eighteen concrete production bot personalities (+ a dev-only TestAttackBot combat harness), each with distinct
+  state machines and behavioral loops. A factory pattern instantiates them by type enum:
 
      Core Population Bots:
      - FMBot — Free Market wanderer, shops, trades
@@ -54,6 +56,15 @@
 
      Party Quest Bots:
      - OPQBot — Orbis Party Quest participants, orchestrated multi-phase PQ simulation
+
+     Grinding & Companion Bots (v0.3):
+     - TrainingBot — Roaming grinder. Consumes movement + combat LOD: real class-aware combat when observed,
+       abstract level-scaled EXP when not. Grind sub-FSM picks a map-archetype strategy (Camp/Roam/Patrol/Stack),
+       claims a spawn-dense spot, rests, loots, and progresses across a cohort's map region (BotGrindSystem/).
+     - TownWandererBot — Generic ambient town roamer for the non-Henesys cities (Ellinia, Perion, Kerning,
+       Sleepywood, Orbis, El Nath); HenesysBot stays the Henesys-specific roamer.
+     - FollowerBot — Player companion. A player recruited in town gets one that follows and grinds alongside
+       them with real shared-party EXP (BotPartySystem/BotRecruitManager).
 
   2. Bot Decoration & Tier System (BotDecoratorSystem/)
   Procedurally generates each bot's appearance, level, and equipment based on a weighted tier assignment (S/A/B/C/D).
@@ -106,6 +117,11 @@
      - moveToPortal / moveToPortalAndEnter — portal-targeted navigation
      - Movement recording: InPacketReader captures live player movement for replay authoring
 
+     d) GreenCatMS fluid-combat locomotion (GCMoveSystem/, v0.3): a physics-driven driver used by grinders
+        and other combat bots — real flash-jump and teleport arcs (GCMovementSkills), arced jump-attacks,
+        mid-air kiting, and class-aware movement (thief Haste, level-scaled jump). This is a separate driver
+        from the replay/pathfinding modes above; a bot's movement is locked to one engine at a time.
+
   4. Trade System (BotTradeSystem/)
   A dedicated sub-state machine (BotTradeSM) with 9 states handles the full trade lifecycle — from accepting the
   request, evaluating offers, counter-offering, confirming, to post-trade cleanup. Each bot has a BotTradeInventory
@@ -151,7 +167,7 @@
 
   9. Dialogue System (BotDialogueHandler, BotCommandsPack/)
   YAML-driven dialogue with randomized line selection, emote IDs, timing, and variable substitution (%RESP_NAME,
-  %CHR_NAME, %WPN_NAME, %NX_CODE). Fifteen per-bot-type dialogue files (plus DropGameLootPool.yaml):
+  %CHR_NAME, %WPN_NAME, %NX_CODE). ~20 per-bot-type / system dialogue files (incl. v0.3 TownChatterDialogue.yaml; plus DropGameLootPool.yaml):
      - BlackjackDealerBotDialogue.yaml, ConversationDialogue.yaml, DropGameBotDialogue.yaml
      - DropGameSpectatorDialogue.yaml, FMBotDialogue.yaml, GameZoneHostBotDialogue.yaml
      - HenesysBotDialogue.yaml, JQBotDialogue.yaml, MegaphoneDialogue.yaml
@@ -168,9 +184,10 @@
      - BotAttack — melee swing animations (used for reactor hitting in OPQ)
 
   10. Environment Manager (Environment/)
-  Handles multi-phase world initialization via a 7-wave phased startup. Each wave runs its tasks in
-  parallel and blocks until the wave completes (runWave/runPhase), with per-wave timing + bot-count
-  logging. Full startup: ~650 bots in roughly 10 seconds.
+  Handles multi-phase world initialization via a 9-wave phased startup (wave 8 = ~1,240 roaming
+  training bots; wave 9 = all-town ambient presence via BotTownSystem). Each wave runs its tasks in parallel and blocks until the wave completes
+  (runWave/runPhase), with per-wave timing + bot-count logging. Full startup: ~1,900 bots in
+  roughly 10 seconds.
 
      Wave 1 — Essentials: Casino NPCs, Tutorial Bot (Maple Island), Henesys wanderers (10), Henesys FM region,
               first FM entrance batch
@@ -200,9 +217,20 @@
      - PlatformSpawner.java — places bots on valid footholds
      - EnvironmentManager — orchestrates spawn phases, platform queries, NPC spawning
 
-  11. Social Simulation Systems [NEW]
+  11. Social Simulation Systems
 
-     SocialHotPotatoManager — Ambient social activity generator for filler bots across 4 Henesys maps.
+     v0.3 note: ambient social life is no longer Henesys-only — it now spans all 7 major towns (Henesys,
+     Ellinia, Perion, Kerning, Sleepywood, Orbis, El Nath) via BotTownSystem/ (TownLoiter, TownStation,
+     TownPresenceConfig — anchor-weighted per-town SocialBot cohorts, claim-a-spot loitering, live-tuned by
+     !env townpresence). Two additional v0.3 systems layer on top of the two below:
+        * BotChatterSystem/ — paired/clustered bot-to-bot conversations (TownChatterDialogue.yaml), plus
+          town-wide ambient barks; observation-gated; tuned via !env chatter.
+        * BotFlavorSystem/ — idle expression (emotes, cosmetic skill-swings, buff-flex) and level-up
+          congratulations that fire when a real player OR another bot levels up (LEVEL_UP on the event bus).
+     All four systems de-conflict through SocialBot availability checks so a bot never does two at once.
+
+     SocialHotPotatoManager — Ambient social activity generator for filler bots (originally 4 Henesys maps,
+     widened in v0.3).
      Runs every 8-20 seconds (randomized). Selects random available filler bots and performs weighted actions:
         * 40% Chat (categories: RealLife, MapleInUniverse, SocialSim, AFK, Nostalgia, etc.)
         * 15% Emote (random 1-22)
@@ -283,8 +311,11 @@
   NPCs spawned via EnvironmentManager on dedicated casino maps (Game Zone, map 100000203) in Wave 1.
 
   18. Server-Side Utilities (server/)
-     - ExecutorServiceManager — centralized thread-pool management (bots get schedulers here)
-     - MethodScheduler — delayed/repeated task scheduling (used by JQBot mid-chat, DropGameBot drops)
+     - BotTickService — the central macro-tick wheel; all bot FSM scheduling goes through it
+     - BotTiming — delayed actions and choreography chains (the Thread.sleep replacement)
+     - BotPerfStats — perf counters behind the in-game !env perf readout
+     - ExecutorServiceManager — centralized thread-pool management (shared pools + virtual threads)
+     - MethodScheduler — one-shot delayed tasks; now a thin delegate over the shared pools
      - MapleMessengerConsole (MMC) — in-game operator console for environment commands
      - SoloMaplingConstants — global constants
      - SoloMaplingUtilities — type checking, random helpers, sleep utilities, rollChance
@@ -333,7 +364,7 @@
   |                     | SocialHotPotatoManager, ConversationManager                |
   +---------------------+-----------------------------------------------------------+
   | Orchestrator        | OPQOrchestrator (PQ phases), ConversationManager (multi-   |
-  |                     | bot dialogue), EnvironmentManager (7-wave world startup)   |
+  |                     | bot dialogue), EnvironmentManager (9-wave world startup)   |
   +---------------------+-----------------------------------------------------------+
   | Command             | BotCommandsPack (7 packs), GM4 command dispatch (9 suites) |
   +---------------------+-----------------------------------------------------------+
@@ -341,8 +372,11 @@
   ---
   Concurrency Model
 
-  Each bot runs on a ScheduledExecutorService with randomized intervals. An ExecutorServiceManager centralizes thread
-  pool management. The environment setup runs in 7 waves — each wave's tasks run in parallel and the wave blocks
+  No bot owns a thread. All macro ticks ride the central BotTickService wheel: one driver task on the shared
+  scheduled pool dispatches due ticks onto virtual threads, with a per-bot no-overlap guard and fixed-delay-from-
+  completion semantics. Cadence tiers come from ObserverTracker; a governor stretches background cadences under
+  sustained wheel lag; !env perf is the health readout. An ExecutorServiceManager centralizes thread pool
+  management. The environment setup runs in 9 waves — each wave's tasks run in parallel and the wave blocks
   until complete; spawn arrival animations play on virtual threads (runAsync) so spawning never blocks on
   choreography. Thread safety is handled via ConcurrentHashMap in shared registries. OPQ adds orchestrator-level coordination where the singleton manages phase
   transitions and task completion tracking across all registered bots. SocialHotPotatoManager and ConversationManager
@@ -352,11 +386,12 @@
   ---
   File Composition (approximate)
 
-  - Java source files: ~162 (under soloMapling/)
+  - Java source files: ~262 (under soloMapling/; ~162 at v0.1 — the Fable v0.3 grind/town/chatter/flavor
+    subsystems and bot-type additions account for most of the growth)
   - Movement recording data: 825+ files (413 .bin + 412 .csv across 20+ map directories)
-  - YAML configuration: ~31 files (14 dialogue, 13 item configs, 2 version configs, 2 pool configs)
+  - YAML configuration: ~42 files (20 dialogue, 14 item configs, + decorator / version / pool / town configs)
   - Text data: ~12 files (FM shop names/descriptions)
-  - Documentation: ~27 files (design notes, summaries, architecture docs, technical notes)
+  - Documentation: ~72 files (design notes, summaries, architecture docs, Fable audits/plans, technical notes)
 
   ---
   It's a genuinely sophisticated piece of software — the layering of movement replay, graph-based navigation, tiered

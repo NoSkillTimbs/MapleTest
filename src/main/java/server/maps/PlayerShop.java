@@ -585,7 +585,16 @@ public class PlayerShop extends AbstractMapObject {
         }
 
         if (target != null) {
-            target.sendPacket(PacketCreator.shopErrorMessage(5, 1));
+            // The kicked client only closes its shop window when told its OWN slot is leaving
+            // (same self-packet forceRemoveVisitor uses). The old shopErrorMessage(5, 1) shares
+            // the EXIT opcode and its hard-coded '1' read as "slot 1 leaves" — right only when
+            // the kickee sat in slot 1; from slot 2/3 it removed the wrong avatar and left the
+            // kicked client visually inside the shop (or DC'd it).
+            int slot = target.getSlot();
+            if (slot > 0) {
+                target.sendPacket(PacketCreator.getPlayerShopRemoveVisitor(slot));
+            }
+            target.dropMessage(1, "You have been banned from this store.");
             removeVisitor(target);
         }
     }

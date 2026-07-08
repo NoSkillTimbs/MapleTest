@@ -5,6 +5,10 @@ import client.Client;
 import client.command.Command;
 import server.maps.ReactorDropEntry;
 import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.ArtificialPlayer.BotSM;
+import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
+import soloMapling.ArtificialPlayer.BotFlavorSystem.BotFlavor;
+import soloMapling.ArtificialPlayer.BotFlavorSystem.FlavorAction;
 import soloMapling.ArtificialPlayer.ConversationManager;
 import soloMapling.server.EventMessageSystem.EventBus;
 import soloMapling.server.EventMessageSystem.GameEvent;
@@ -30,6 +34,7 @@ import static soloMapling.itemPool.GachaFillerSystem.createGachaListWithPrize;
 import static soloMapling.server.EventMessageSystem.EventFactory.createLevelUpEvent;
 import static soloMapling.server.EventMessageSystem.EventFactory.createScrollEvent;
 import static soloMapling.server.SoloMaplingUtilities.isInteger;
+import static soloMapling.Environment.PlatformPlacement.getAllCharsOnMap;
 
 public class TestDevCommand extends Command {
     {
@@ -110,6 +115,15 @@ public class TestDevCommand extends Command {
             case "spawnreactor":
                 spawnReactor(c.getPlayer());
                 break;
+            case "congrats":
+                // Publish a level-up for the GM so nearby town/social bots (and GachaBots) react,
+                // without needing to actually gain EXP. The natural-EXP publish path is gainExpInternal.
+                EventBus.getInstance().publish(createLevelUpEvent(c.getPlayer()));
+                player.yellowMessage("[flavor] published LEVEL_UP for you - nearby bots may congratulate in ~5-9s");
+                break;
+            case "flavor":
+                forceFlavorOnMap(c, null); // random idle expression on every bot on this map
+                break;
 
             default:
                 player.yellowMessage("Invalid command - Direct Command");
@@ -179,11 +193,52 @@ public class TestDevCommand extends Command {
 
     public static void handleStringStringCommand(String input, String input2, Client c) {
         switch (input.toLowerCase()) {
-            case "Test":
+            case "flavor":
+                forceFlavorOnMap(c, parseFlavorAction(input2));
                 break;
             default:
                 player.yellowMessage("Invalid command - handleStringIntCommand");
                 break;
+        }
+    }
+
+    // Force a bot-flavor expression on every bot on the GM's current map (test aid). action == null
+    // picks a random action per bot.
+    private static void forceFlavorOnMap(Client c, FlavorAction action) {
+        Character p = c.getPlayer();
+        int count = 0;
+        for (Character chr : getAllCharsOnMap(p.getMapId())) {
+            if (!BotHelpers.isBot(chr)) {
+                continue;
+            }
+            BotSM bot = CharacterStorage.getBotById(chr.getId());
+            if (bot == null) {
+                continue;
+            }
+            if (action == null) {
+                BotFlavor.forceExpress(bot);
+            } else {
+                BotFlavor.forceExpress(bot, action);
+            }
+            count++;
+        }
+        p.yellowMessage("[flavor] forced " + (action == null ? "random" : action) + " on " + count + " bot(s) on this map");
+    }
+
+    private static FlavorAction parseFlavorAction(String s) {
+        switch (s.toLowerCase()) {
+            case "emote":
+                return FlavorAction.EMOTE;
+            case "buff":
+            case "bufflex":
+                return FlavorAction.BUFF_FLEX;
+            case "swing":
+            case "skill":
+            case "skillswing":
+                return FlavorAction.SKILL_SWING;
+            default:
+                player.yellowMessage("[flavor] unknown action '" + s + "' - using random");
+                return null;
         }
     }
 
@@ -230,6 +285,10 @@ public class TestDevCommand extends Command {
         player.yellowMessage("!test botgacha <cid>             - test gacha drop pop");
         player.yellowMessage("-- Chat --");
         player.yellowMessage("!test chat <cid> <message>       - bot speaks in chat");
+        player.yellowMessage("-- Bot Flavor --");
+        player.yellowMessage("!test congrats                   - publish a level-up for YOU (nearby bots congratulate)");
+        player.yellowMessage("!test flavor                     - force a random idle expression on all bots here");
+        player.yellowMessage("!test flavor <emote|buff|swing>  - force that expression on all bots here");
     }
 
     public static void eventUnitTests(Character fakechar) {

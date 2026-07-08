@@ -7,7 +7,10 @@ import java.util.concurrent.TimeUnit;
 
 public class ExecutorServiceManager {
     //    private static final ExecutorService executorService = Executors.newCachedThreadPool(); // is this causing error 38 / dc to login?
-    private static final ExecutorService executorService = Executors.newFixedThreadPool(100);
+    // Fable Phase 2 (F12): 100 -> 8. Its only consumers are chat-dispatch matching and
+    // GM command bodies - a bounded handful of quick tasks. Blocking bulk work
+    // (spawn waves, choreography) already runs on the virtual-thread executor.
+    private static final ExecutorService executorService = Executors.newFixedThreadPool(8);
     private static final ScheduledExecutorService scheduledExecutorService = Executors.newScheduledThreadPool(10);
     private static final ExecutorService virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
 

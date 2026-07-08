@@ -110,6 +110,17 @@ public class Dispatcher implements Runnable {
         log("bot already running");
         bot.getInteractors().setInquirer(message.getSender());
         bot.getDialogueHandler().listOptions(message.getSender(), bot);
+        // One-line inquiry: a naming message that also carries a keyword ("Tiger wana party?") pre-selects the
+        // menu option in the same breath. Strip the bot's name first so a name that itself contains a keyword
+        // can't self-match, then re-enqueue the remainder onto the tertiary queue exactly as a stand-alone
+        // follow-up would have arrived — BotOptionMenu.poll drains it on the bot's next tick with the same
+        // trim/lowercase/contains matcher. The menu is already active (listOptions ran synchronously above),
+        // and a non-matching remainder ("yo Tiger") falls through harmlessly like a junk follow-up would.
+        String remainder = message.getContent().replace(bot.getChr().getName(), "").trim();
+        if (!remainder.isEmpty()) {
+            messageQueue.addMessage("tertiary", new ChatMessage(message.getSender(), remainder));
+            bot.nudgeSoon(0L); // player is on the bot's map -> pull the pre-selected option forward so it feels instant
+        }
     }
 
     private void handleSocialBotSession(SocialBot socialBot, ChatMessage message) {

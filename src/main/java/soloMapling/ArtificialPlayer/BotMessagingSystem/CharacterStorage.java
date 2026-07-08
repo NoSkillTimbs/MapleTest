@@ -4,11 +4,15 @@ import client.Character;
 import soloMapling.ArtificialPlayer.BotSM;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class CharacterStorage {
-    private static Map<Integer, BotSM> activeBotMap = new HashMap<>();
-    private static List<Character> currentRespondants = new ArrayList<>(); // Current respondants
-    private static List<Character> inquirer = new ArrayList<>();
+    // Fable Phase 1 (F7): these registries are written from parallel spawn waves, the
+    // dispatcher pool, and bot lifecycle code at once - they must be thread-safe.
+    private static Map<Integer, BotSM> activeBotMap = new ConcurrentHashMap<>();
+    private static List<Character> currentRespondants = new CopyOnWriteArrayList<>(); // Current respondants
+    private static List<Character> inquirer = new CopyOnWriteArrayList<>();
     private static final List<Integer> invisibleBotList = Arrays.asList(100);
     private static int currentIndex = 0;
 

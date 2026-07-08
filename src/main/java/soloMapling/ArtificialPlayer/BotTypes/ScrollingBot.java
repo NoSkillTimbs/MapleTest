@@ -3,7 +3,6 @@ package soloMapling.ArtificialPlayer.BotTypes;
 import client.Character;
 import client.inventory.Equip;
 import soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands;
-import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.ChatMessage;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
 import soloMapling.ArtificialPlayer.BotSM;
@@ -17,7 +16,7 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import static soloMapling.ArtificialPlayer.BotCommandsPack.MegaphoneCommands.BotItemMegaphone;
-import static soloMapling.ArtificialPlayer.BotDialogueHandler.getRandomDialogueLine;
+import static soloMapling.ArtificialPlayer.BotDialogueHandler.getRandomResolvedLine;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotEmote;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.VFXCommands.botScrollFail;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.VFXCommands.botScrollSuccess;
@@ -142,7 +141,7 @@ public class ScrollingBot extends BotSM {
             getDialogueHandler().executeBotFlavorDialogue(isSuccess ? "ScrollSuccess" : "ScrollFail", this);
         }
 
-        BotHelpers.sleepAmountSeconds(10000 + random.nextInt(5001)); // 10-15 seconds
+        waitForRandom(10000, 15000); // pace the next scroll 10-15s out (gated wait, no sleep)
         return true;
     }
 
@@ -159,7 +158,8 @@ public class ScrollingBot extends BotSM {
         getTradeWants().setMesoWanted(adj);
 //        getTradeWants().setMesoWanted(0);
 //        getTradeWants().addItemWanted(2022179, 2);
-        String adLine = getRandomDialogueLine(this, "AdvertiseSale").replace("%PRICE%", formatPriceToShorthand(adj));
+        String adBase = getRandomResolvedLine(this, "AdvertiseSale");
+        String adLine = (adBase != null ? adBase : "").replace("%PRICE%", formatPriceToShorthand(adj));
         BotItemMegaphone(getChr(), adLine, eqToSell);
         setTradeMode(BotTradeSM.TradeMode.SELLING);
     }

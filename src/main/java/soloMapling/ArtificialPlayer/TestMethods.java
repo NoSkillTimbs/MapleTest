@@ -74,7 +74,7 @@ public class TestMethods {
         List<TimeCoordinatePair> tcpSplit = coordPathSplitter(coordPathBuilder(fakechar, endPt), 10);
         for (TimeCoordinatePair cp : tcpSplit) {
             MovementCommands.pathFinderBeta(fakechar, cp.getPoints().getLast());
-            BotHelpers.sleepAmountSeconds(2500);
+            BotHelpers.blockingSleep(2500);
         }
     }
 
@@ -99,14 +99,14 @@ public class TestMethods {
                 }
                 System.out.println(s + " -> " + e);
                 moveToFMDoor(fakechar, e);
-                BotHelpers.sleepAmountSeconds(1000);
+                BotHelpers.blockingSleep(1000);
 
                 System.out.println(e + " -> " + s);
                 moveToFMDoor(fakechar, s);
-                BotHelpers.sleepAmountSeconds(1000);
+                BotHelpers.blockingSleep(1000);
 
             }
-            BotHelpers.sleepAmountSeconds(1000);
+            BotHelpers.blockingSleep(1000);
         }
         System.out.println("end");
     }
@@ -117,9 +117,9 @@ public class TestMethods {
 //                SocialCommands.BotSpeak(fakechar, s + " -> " + e);
 //                moveBetweenFMRowsUp(fakechar, s, e);
 //                SocialCommands.BotEmote(fakechar, 2);
-//                BotHelpers.sleepAmountSeconds(2000);
+//                BotHelpers.blockingSleep(2000);
 //            }
-//            BotHelpers.sleepAmountSeconds(1000);
+//            BotHelpers.blockingSleep(1000);
 //        }
 //    }
 //
@@ -132,9 +132,9 @@ public class TestMethods {
 //                }
 //                MoveBetweenTwoDoorsSameRow(fakechar, s, e);
 //            }
-//            BotHelpers.sleepAmountSeconds(1000);
+//            BotHelpers.blockingSleep(1000);
 //        }
-//        BotHelpers.sleepAmountSeconds(2000);
+//        BotHelpers.blockingSleep(2000);
 //    }
 
 
@@ -153,23 +153,23 @@ public class TestMethods {
     public static void testBotExitAllRooms(Character fakechar) {
         for (int i = 1; i < 23; i++) {
             botExitFMRoom(fakechar, i);
-            BotHelpers.sleepAmountSeconds(500);
+            BotHelpers.blockingSleep(500);
         }
     }
 
     public static void testBotEnterAllRoms(Character fakechar) {
         for (int i = 1; i < 23; i++) {
             botEnterFMRoom(fakechar, i);
-            BotHelpers.sleepAmountSeconds(7000);
+            BotHelpers.blockingSleep(7000);
         }
     }
 
     public static void testBotEnterExitAllRooms(Character fakechar) {
         for (int i = 1; i < 23; i++) {
             botEnterFMRoom(fakechar, i);
-            BotHelpers.sleepAmountSeconds(4000);
+            BotHelpers.blockingSleep(4000);
             botExitFMRoom(fakechar, i);
-            BotHelpers.sleepAmountSeconds(4000);
+            BotHelpers.blockingSleep(4000);
         }
     }
 

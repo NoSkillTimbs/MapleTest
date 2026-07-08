@@ -130,8 +130,47 @@ public class BotDecorate {
             return 0; // BEGINNER
         }
 
-        // Randomly select a base class (Warrior, Magician, Bowman, or Thief)
-        int baseClass = (int) (Math.random() * 4) + 1;
+        return selectJobForClass(rollBaseClass(), level);
+    }
+
+    // Weighted base-class roll (Pirate excluded). Skewed to match v83 nostalgia:
+    // thieves everywhere, mages second, warriors third, bowmen the rarest.
+    // Both roll sites (generic decoration + training-bot spawn) go through here
+    // so the population mix stays in sync. Returns 1=Warrior 2=Magician 3=Bowman 4=Thief.
+    public static int rollBaseClass() {
+        int roll = (int) (Math.random() * 100); // 0..99
+        if (roll < 31) return 4;       // THIEF    31%
+        else if (roll < 56) return 2;  // MAGICIAN 25%  (31..55)
+        else if (roll < 80) return 1;  // WARRIOR  24%  (56..79)
+        else return 3;                 // BOWMAN   20%  (80..99)
+    }
+
+    // Sub-path rolls, weighted per class. Path indices match the tier switches below
+    // (warrior: 1 Fighter / 2 Page / 3 Spearman; mage: 1 F-P / 2 I-L / 3 Cleric).
+    private static int rollWarriorPath() {
+        int roll = (int) (Math.random() * 100);
+        if (roll < 44) return 3;       // SPEARMAN 44%
+        else if (roll < 74) return 1;  // FIGHTER  30%  (44..73)
+        else return 2;                 // PAGE     26%  (74..99)
+    }
+
+    private static int rollMagePath() {
+        int roll = (int) (Math.random() * 100);
+        if (roll < 44) return 3;       // CLERIC 44%  (bishops were overpowered)
+        else if (roll < 74) return 2;  // I-L    30%  (44..73)
+        else return 1;                 // F-P    26%  (74..99)
+    }
+
+    // Thief: assassin slightly over bandit. Bowman stays an even 50/50.
+    private static boolean rollThiefAssassin() {
+        return Math.random() < 0.55;
+    }
+
+    public static int selectJobForClass(int baseClass, int level) {
+        // Beginner for levels 1-9
+        if (level < 10) {
+            return 0; // BEGINNER
+        }
 
         // First job advancement (levels 10-29)
         if (level < 30) {
@@ -153,7 +192,7 @@ public class BotDecorate {
         if (level < 70) {
             switch (baseClass) {
                 case 1: // WARRIOR paths
-                    int warriorPath = (int) (Math.random() * 3) + 1;
+                    int warriorPath = rollWarriorPath();
                     switch (warriorPath) {
                         case 1:
                             return 110; // FIGHTER
@@ -163,7 +202,7 @@ public class BotDecorate {
                             return 130; // SPEARMAN
                     }
                 case 2: // MAGICIAN paths
-                    int magePath = (int) (Math.random() * 3) + 1;
+                    int magePath = rollMagePath();
                     switch (magePath) {
                         case 1:
                             return 210; // FP_WIZARD
@@ -175,7 +214,7 @@ public class BotDecorate {
                 case 3: // BOWMAN paths
                     return (Math.random() < 0.5) ? 310 : 320; // HUNTER or CROSSBOWMAN
                 case 4: // THIEF paths
-                    return (Math.random() < 0.5) ? 410 : 420; // ASSASSIN or BANDIT
+                    return rollThiefAssassin() ? 410 : 420; // ASSASSIN or BANDIT
                 default:
                     return 0; // BEGINNER (fallback)
             }
@@ -185,7 +224,7 @@ public class BotDecorate {
         if (level < 120) {
             switch (baseClass) {
                 case 1: // WARRIOR paths
-                    int warriorPath = (int) (Math.random() * 3) + 1;
+                    int warriorPath = rollWarriorPath();
                     switch (warriorPath) {
                         case 1:
                             return 111; // CRUSADER
@@ -195,7 +234,7 @@ public class BotDecorate {
                             return 131; // DRAGONKNIGHT
                     }
                 case 2: // MAGICIAN paths
-                    int magePath = (int) (Math.random() * 3) + 1;
+                    int magePath = rollMagePath();
                     switch (magePath) {
                         case 1:
                             return 211; // FP_MAGE
@@ -207,7 +246,7 @@ public class BotDecorate {
                 case 3: // BOWMAN paths
                     return (Math.random() < 0.5) ? 311 : 321; // RANGER or SNIPER
                 case 4: // THIEF paths
-                    return (Math.random() < 0.5) ? 411 : 421; // HERMIT or CHIEFBANDIT
+                    return rollThiefAssassin() ? 411 : 421; // HERMIT or CHIEFBANDIT
                 default:
                     return 0; // BEGINNER (fallback)
             }
@@ -216,7 +255,7 @@ public class BotDecorate {
         // Fourth job advancement (levels 120+)
         switch (baseClass) {
             case 1: // WARRIOR paths
-                int warriorPath = (int) (Math.random() * 3) + 1;
+                int warriorPath = rollWarriorPath();
                 switch (warriorPath) {
                     case 1:
                         return 112; // HERO
@@ -226,7 +265,7 @@ public class BotDecorate {
                         return 132; // DARKKNIGHT
                 }
             case 2: // MAGICIAN paths
-                int magePath = (int) (Math.random() * 3) + 1;
+                int magePath = rollMagePath();
                 switch (magePath) {
                     case 1:
                         return 212; // FP_ARCHMAGE
@@ -238,7 +277,7 @@ public class BotDecorate {
             case 3: // BOWMAN paths
                 return (Math.random() < 0.5) ? 312 : 322; // BOWMASTER or MARKSMAN
             case 4: // THIEF paths
-                return (Math.random() < 0.5) ? 412 : 422; // NIGHTLORD or SHADOWER
+                return rollThiefAssassin() ? 412 : 422; // NIGHTLORD or SHADOWER
             default:
                 return 0; // BEGINNER (fallback)
         }
@@ -296,6 +335,45 @@ public class BotDecorate {
         // NX cosmetic layer - runs on every bot regardless of which equip path
         // it took. Its own 30% base gate decides whether the bot actually gets
         // any NX pieces.
+        BotDecorateNX.apply(bot);
+    }
+
+    public static void setBotVariables(Character bot, int baseClass, int minLevel, int maxLevel) {
+        setBotVariables(bot, baseClass, minLevel, maxLevel, 0);
+    }
+
+    // forcedJobId > 0 pins the exact job (e.g. the GM 'trainhere hermit' test spawn); 0 = a random job
+    // appropriate for the class + level. Everything else (level, gender, body, class-coherent gear, NX) is
+    // identical, so a forced-job bot is decorated ONCE, correctly — no post-hoc re-decoration needed.
+    public static void setBotVariables(Character bot, int baseClass, int minLevel, int maxLevel, int forcedJobId) {
+        BotTier tier = getRandomTier();
+        bot.setTier(tier);
+        // generateBotLevel requires min < max; an exact-level spawn pins both ends.
+        int level = (minLevel >= maxLevel) ? minLevel : generateBotLevel(tier, minLevel, maxLevel);
+        int job = (forcedJobId > 0) ? forcedJobId : selectJobForClass(baseClass, level);
+        bot.setGender(selectRandomGender());
+        bot.setLevel(level);
+        bot.setJob(Job.getById(job));
+
+        BotDecorateBody.decorateBotBody(bot);
+
+        // Level 1-9 beginners get curated starter gear and nothing else (no
+        // class-aware pass, no deferred queue, no NX overlay) so they read as
+        // plain newbies. Uses explicit item ids, so the cache state doesn't matter.
+        if (BeginnerEquip.isBeginner(bot)) {
+            BeginnerEquip.apply(bot);
+            return;
+        }
+
+        if (EquipMetadataCache.isInitialized()) {
+            BotDecorateEquips.decorateBotEquips(bot);
+        } else {
+            // Cache not ready (env still booting): dress generically now and defer
+            // the full class-aware pass - same fallback the random path uses.
+            QuickEquip.apply(bot);
+            BotDecorationQueue.addBot("default", bot.getId());
+        }
+
         BotDecorateNX.apply(bot);
     }
 

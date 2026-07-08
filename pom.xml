@@ -215,6 +215,13 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <!-- WZ-dependent tests (GCMove bake/world-graph) need the same
+                             property the server jar needs; set it so plain `mvn test` works -->
+                        <wz-path>wz</wz-path>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
 
             <plugin>

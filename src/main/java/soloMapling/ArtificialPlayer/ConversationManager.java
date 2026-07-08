@@ -6,6 +6,8 @@ import net.server.Server;
 import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
 import soloMapling.ArtificialPlayer.BotSM;
+import soloMapling.ArtificialPlayer.BotTownSystem.TownPresenceConfig;
+import soloMapling.ArtificialPlayer.BotTypes.SocialBot;
 import soloMapling.server.ExecutorServiceManager;
 
 import java.awt.*;
@@ -18,10 +20,10 @@ import java.util.concurrent.TimeUnit;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotEmote;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotSpeak;
 import static soloMapling.ArtificialPlayer.BotHelpers.isBot;
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
+import static soloMapling.ArtificialPlayer.BotHelpers.blockingSleep;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.botFaceTowardsPoint;
 import static soloMapling.BotLogger.log;
-import static soloMapling.Environment.EnvironmentManager.getAllCharsOnMap;
+import static soloMapling.Environment.PlatformPlacement.getAllCharsOnMap;
 
 public class ConversationManager {
 
@@ -50,6 +52,12 @@ public class ConversationManager {
             100000102   // Henesys Potion Shop
     };
 
+    // The maps this manager animates: the four Henesys maps plus every town map in TownPresence.yaml.
+    // Built once (start / refreshMapScope) rather than per tick; rebuilt live on !env townpresence reload.
+    // The existing player-presence gate means unpopulated town maps no-op, so widening is free where
+    // nobody's watching.
+    private volatile Set<Integer> ambientMapIds = buildAmbientMapIds();
+
     private static final String DIALOGUE_YAML = "src/main/java/soloMapling/ArtificialPlayer/BotDialoguePack/ConversationDialogue.yaml";
 
     private final Set<Integer> botsInConversation = Collections.synchronizedSet(new HashSet<>());
@@ -71,8 +79,25 @@ public class ConversationManager {
         if (running) return;
         running = true;
         loadScripts();
+        refreshMapScope();
         scheduleNextTick();
         log("[ConversationManager] Started with " + (allScripts != null ? allScripts.size() : 0) + " scripts.");
+    }
+
+    // Rebuild the animated-map scope from config. Called on start and by !env townpresence reload so town
+    // curation applies without a restart.
+    public void refreshMapScope() {
+        ambientMapIds = buildAmbientMapIds();
+        log("[ConversationManager] Map scope: " + ambientMapIds.size() + " maps.");
+    }
+
+    private static Set<Integer> buildAmbientMapIds() {
+        Set<Integer> ids = new LinkedHashSet<>();
+        for (int id : HENESYS_MAP_IDS) {
+            ids.add(id);
+        }
+        ids.addAll(TownPresenceConfig.allTownMapIds());
+        return ids;
     }
 
     public void stop() {
@@ -91,15 +116,20 @@ public class ConversationManager {
     private void scheduleNextTick() {
         if (!running) return;
         int delay = MIN_INTERVAL_MS + random.nextInt(MAX_INTERVAL_MS - MIN_INTERVAL_MS);
-        scheduledTask = ExecutorServiceManager.getScheduledExecutorService().schedule(() -> {
-            try {
-                tick();
-            } catch (Exception e) {
-                log("[ConversationManager] Error during tick: " + e.getMessage());
-                e.printStackTrace();
-            }
-            scheduleNextTick();
-        }, delay, TimeUnit.MILLISECONDS);
+        // Fable Phase 4: run the tick body on a virtual thread - conversation playback
+        // sleeps between lines, and that used to pin one of the shared scheduled pool's
+        // threads for the whole script. The next tick is still scheduled only after the
+        // current one finishes, so conversations never overlap.
+        scheduledTask = ExecutorServiceManager.getScheduledExecutorService().schedule(
+                () -> ExecutorServiceManager.runAsync(() -> {
+                    try {
+                        tick();
+                    } catch (Exception e) {
+                        log("[ConversationManager] Error during tick: " + e.getMessage());
+                        e.printStackTrace();
+                    }
+                    scheduleNextTick();
+                }), delay, TimeUnit.MILLISECONDS);
     }
 
     private void tick() {
@@ -110,7 +140,7 @@ public class ConversationManager {
 
         long now = System.currentTimeMillis();
 
-        for (int mapId : HENESYS_MAP_IDS) {
+        for (int mapId : ambientMapIds) {
             if (!mapsWithRealPlayers.contains(mapId)) continue;
             if (!isMapCooldownReady(mapId, now)) continue;
 
@@ -175,6 +205,11 @@ public class ConversationManager {
                 if (!isBot(chr)) continue;
                 BotSM bot = CharacterStorage.getBotById(chr.getId());
                 if (bot == null || !bot.isAvailableForAmbientActions()) continue;
+                // Cluster convos face participants with the OLD movement engine (botFaceTowardsPoint), so
+                // the pool must be stationed old-engine SocialBots only. In the towns this excludes
+                // GC-engine TownWandererBots - facing one would fire a mismatched packet and freeze a
+                // roamer mid-stroll. Henesys is already all SocialBots, so this is a no-op there.
+                if (!(bot instanceof SocialBot)) continue;
                 if (botsInConversation.contains(chr.getId())) continue;
                 fillerBots.add(chr);
             }
@@ -276,6 +311,9 @@ public class ConversationManager {
         return eligible.get(random.nextInt(eligible.size()));
     }
 
+    // Deliberate synchronous choreography: runs on its own virtual thread (runAsync
+    // above), line delays are YAML data-driven, and the `running` check between
+    // lines is the kill switch. Blocking here is the point - do not de-sleep.
     private void playConversation(List<Character> participants, ConversationScript script) {
         Map<String, Character> roleMap = new HashMap<>();
         String[] roles = {"A", "B", "C", "D"};
@@ -287,7 +325,7 @@ public class ConversationManager {
         for (Character chr : participants) {
             botFaceTowardsPoint(chr, center);
         }
-        sleepAmountSeconds(800);
+        blockingSleep(800);
 
         for (ConversationScript.ConversationLine line : script.getLines()) {
             if (!running) return;
@@ -296,7 +334,7 @@ public class ConversationManager {
             if (speaker == null) continue;
 
             if (line.getDelayMs() > 0) {
-                sleepAmountSeconds((int) line.getDelayMs());
+                blockingSleep((int) line.getDelayMs());
             }
 
             BotSpeak(speaker, line.getText());
@@ -305,7 +343,7 @@ public class ConversationManager {
             }
         }
 
-        sleepAmountSeconds(2000);
+        blockingSleep(2000);
     }
 
     private Point calculateCenter(List<Character> participants) {

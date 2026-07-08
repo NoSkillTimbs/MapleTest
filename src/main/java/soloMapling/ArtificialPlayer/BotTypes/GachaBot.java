@@ -85,7 +85,7 @@ public class GachaBot extends BotSM {
         int prize_id = 1082223; // scg
         List<ReactorDropEntry> popDrops = createReactorDropList(createGachaListWithPrize(prize_id));
         gachaPop(getChr(), popDrops);
-//        BotHelpers.sleepAmountSeconds(2000); // Simulate roulette animation time
+//        BotHelpers.blockingSleep(2000); // Simulate roulette animation time
     }
 
     private void pickupItem() {
@@ -117,7 +117,6 @@ public class GachaBot extends BotSM {
         } else {
             SocialCommands.BotSpeak(getChr(), "Wow! " + reward);
         }
-        BotHelpers.sleepAmountSeconds(1000);
     }
 
 
@@ -240,16 +239,16 @@ public class GachaBot extends BotSM {
         }
     }
 
+    // Deliberate synchronous choreography — the recording playbacks block for
+    // their own (data-driven) duration, so the celebration runs on its tick.
     private void handleLevelUpEvent(GameEvent event) {
-        String recName = "rightleft45";
-        MovementRecording mvr = getMovementRecording(0, recName);
+        MovementRecording mvr = getMovementRecording(0, "rightleft45");
         BotMoveStreamOffset(mvr, getChr());
-        BotHelpers.sleepAmountSeconds(1500);
+        BotHelpers.blockingSleep(1500);
         SocialCommands.BotEmote(getChr(), 2);
         SocialCommands.BotChatbubble(getChr(), "Ayy Congrats " + event.getPlayerName() + "!");
-        BotHelpers.sleepAmountSeconds(1500);
-        recName = "leftright70";
-        MovementRecording mvr2 = getMovementRecording(0, recName);
+        BotHelpers.blockingSleep(1500);
+        MovementRecording mvr2 = getMovementRecording(0, "leftright70");
         BotMoveStreamOffset(mvr2, getChr());
     }
 

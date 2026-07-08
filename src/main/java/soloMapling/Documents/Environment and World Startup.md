@@ -1,6 +1,6 @@
 # Environment and World Startup
 
-Last updated: 2026-06-12
+Last updated: 2026-07-08 (v0.3 milestone: added wave 9 / town presence)
 Covers: `soloMapling/Environment/` (4 files) — world initialization, the platform system, and the NPC/casino setup it drives. For the bot lifecycle inside each spawn, see `Artificial Player Framework Architecture.md`.
 
 ---
@@ -18,9 +18,9 @@ first real player logs in
 
 You can also trigger it manually with `!env loadenv` (GM level 4).
 
-## 2. The 7-wave startup
+## 2. The 9-wave startup
 
-`EnvironmentManager.environmentLoadStartup()` populates the world in 7 waves. Each wave is a list of tasks submitted **in parallel**; the wave **blocks until all its tasks complete** (`runWave` -> `runPhase`), then the next wave starts. Every wave logs its elapsed time and how many bots it spawned; the run ends with a total (typically **~650 bots in roughly 10 seconds**).
+`EnvironmentManager.environmentLoadStartup()` populates the world in 9 waves. Each wave is a list of tasks submitted **in parallel**; the wave **blocks until all its tasks complete** (`runWave` -> `runPhase`), then the next wave starts. Every wave logs its elapsed time and how many bots it spawned; the run ends with a total (typically **~1,900 bots in roughly 10 seconds**; the tick architecture is scale-tested to 6,500+ via `!env trainscatter`).
 
 | Wave | Name | Contents |
 |---|---|---|
@@ -31,6 +31,8 @@ You can also trigger it manually with `!env loadenv` (GM level 4).
 | 5 | Henesys sub-areas | Elnath FM, wanderers (10/10/10/4), Park / Potion Shop / Game Zone fillers, Game Zone host bots |
 | 6 | Specialty | Blackjack tables, Drop Game Bot + Drop Game spectators (Potion Shop), Pet Park social bots, random filler -> scroll bot conversions |
 | 7 | Late arrivals | OPQ lobby bots, final merchant batch |
+| 8 | Training bots | ~1,240 roaming grinders: job-coherent cohorts at town spawn portals (Lith Harbour, Henesys, Kerning, Perion, Ellinia, Sleepywood, Orbis, Ludibrium, El Nath) and deep hubs (Ant Tunnel Park, Path of Time, Sharp Cliff I), plus 45 beginner sword grinders |
+| 9 | Town presence (v0.3) | Ambient population for all 7 towns (`BotTownSystem`): one task per town spawns anchor-weighted stationed SocialBot cohorts + roaming TownWandererBots, headcounts fixed in `TownPresence.yaml`. Runs after wave 8 so the town nav graphs are already baked by the grinders spawned there; also re-runnable live via `!env townpresence` |
 | — | After waves | `BotDecorationQueue.start()` (deferred full decoration) + `BotEquipChecker.start()` (2-min naked-bot sweep) |
 
 Notes:

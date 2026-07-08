@@ -2,20 +2,19 @@ package soloMapling.ArtificialPlayer.BotTradeSystem;
 
 import client.Character;
 
-import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.Map;
-import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static soloMapling.DebugUtilities.debugprint;
 
 public class BotTradeQueue {
 
+    // Written from netty threads (Trade.inviteTrade) and read from bot tick virtual threads.
     private final Map<Character, Character> queues;
     private static final BotTradeQueue botTradeQueue = new BotTradeQueue();
 
     private BotTradeQueue() {
-        queues = new HashMap<>();
+        queues = new ConcurrentHashMap<>();
     }
 
     public static BotTradeQueue getInstance() {
