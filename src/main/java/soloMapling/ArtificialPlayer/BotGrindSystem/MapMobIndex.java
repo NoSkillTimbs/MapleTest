@@ -10,6 +10,7 @@ import server.life.Monster;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,8 +27,15 @@ public final class MapMobIndex {
     private MapMobIndex() {
     }
 
-    public record MapMobInfo(int medianLevel, int mobCount, List<Integer> mobIds) {
-        static final MapMobInfo NONE = new MapMobInfo(-1, 0, List.of());
+    // A static spawn point: raw WZ position (x, cy) plus the ledge key of the foothold it sits on —
+    // derived from the WZ foothold tree's layer/group structure (-1 when the fh id is unknown). Not the
+    // nav graph's region id, but the same physical grouping, so the capacity estimator can split spots
+    // per ledge the way the live profile does without loading the map.
+    public record SpawnPos(int x, int y, int fhGroup) {
+    }
+
+    public record MapMobInfo(int medianLevel, int mobCount, List<Integer> mobIds, List<SpawnPos> spawnPoints) {
+        static final MapMobInfo NONE = new MapMobInfo(-1, 0, List.of(), List.of());
     }
 
     private static final ThreadLocal<DataProvider> MAP_SOURCE =
@@ -50,6 +58,13 @@ public final class MapMobIndex {
         return info(mapId).mobIds();
     }
 
+    // Raw WZ spawn points (x, cy, foothold-group ledge key). Static data straight off the map img — no
+    // live map load, no nav bake — so DECIDE can estimate a map's claimable-spot count before any bot
+    // ever grinds it.
+    public static List<SpawnPos> spawnPoints(int mapId) {
+        return info(mapId).spawnPoints();
+    }
+
     public static MapMobInfo info(int mapId) {
         return CACHE.computeIfAbsent(mapId, MapMobIndex::compute);
     }
@@ -64,8 +79,10 @@ public final class MapMobIndex {
             if (life == null) {
                 return MapMobInfo.NONE;
             }
+            Map<Integer, Integer> fhGroups = footholdGroups(mapData);
             List<Integer> levels = new ArrayList<>();
             List<Integer> mobIds = new ArrayList<>();
+            List<SpawnPos> positions = new ArrayList<>();
             for (Data entry : life) {
                 if (!"m".equals(DataTool.getString("type", entry, ""))) {
                     continue;
@@ -84,16 +101,47 @@ public final class MapMobIndex {
                 if (lvl > 0) {
                     levels.add(lvl);
                     mobIds.add(mobId);
+                    // x + cy is what MapFactory feeds calcPointBelow for the live spawn point; close
+                    // enough for cluster counting without loading the map.
+                    int x = DataTool.getInt("x", entry, 0);
+                    int cy = DataTool.getInt("cy", entry, DataTool.getInt("y", entry, 0));
+                    int fh = DataTool.getInt("fh", entry, -1);
+                    positions.add(new SpawnPos(x, cy, fhGroups.getOrDefault(fh, -1)));
                 }
             }
             if (levels.isEmpty()) {
                 return MapMobInfo.NONE;
             }
             Collections.sort(levels);
-            return new MapMobInfo(levels.get(levels.size() / 2), levels.size(), mobIds);
+            return new MapMobInfo(levels.get(levels.size() / 2), levels.size(), mobIds, positions);
         } catch (RuntimeException e) {
             return MapMobInfo.NONE;
         }
+    }
+
+    // fh id -> a per-map ledge key from the WZ foothold tree (one key per layer/group node). Footholds in
+    // the same group form one connected walkable run, so this mirrors the nav graph's ledge notion closely
+    // enough for the estimator's per-ledge spot split.
+    private static Map<Integer, Integer> footholdGroups(Data mapData) {
+        Map<Integer, Integer> out = new HashMap<>();
+        Data root = mapData.getChildByPath("foothold");
+        if (root == null) {
+            return out;
+        }
+        int key = 0;
+        for (Data layer : root) {
+            for (Data group : layer) {
+                key++;
+                for (Data f : group) {
+                    try {
+                        out.put(Integer.parseInt(f.getName()), key);
+                    } catch (NumberFormatException ignored) {
+                        // non-numeric foothold node — skip
+                    }
+                }
+            }
+        }
+        return out;
     }
 
     private static Data loadMapData(int mapId) {

@@ -295,6 +295,9 @@ class BotMovementManager {
         if (entry.navEdge != null) {
             return false;
         }
+        if (entry.resting) {
+            return true; // explicit rope rest hold: hang regardless of the grind guard
+        }
         return !entry.grinding
                 && Math.abs(dy) < cfg.STOP_DIST
                 && Math.abs(dxOwner) < cfg.FOLLOW_DIST * 2;
@@ -374,7 +377,15 @@ class BotMovementManager {
             if (successfullyGrabbedRope(entry, bot, bot.getPosition())) {
                 return;
             }
-            broadcastMovement(entry);
+            if (entry.flashJumpFired) {
+                // Apex tick of a flash jump: emit the type-6 "fj" dash frame in place of the normal
+                // move so observers see the dash animation. relDx/relDy = this tick's position delta.
+                Point now = bot.getPosition();
+                broadcastFlashJump(entry, now.x - botPos.x, now.y - botPos.y);
+                entry.flashJumpFired = false;
+            } else {
+                broadcastMovement(entry);
+            }
         } finally {
             BotPerformanceMonitor.record("move-air", System.nanoTime() - startedAt);
         }
@@ -854,6 +865,14 @@ class BotMovementManager {
 
     private static void doBroadcastMovement(BotMovementState entry) {
         Character bot = entry.bot;
+        // Ours (Fable Phase 1, F4): the physics core still reaches here for unobserved
+        // airborne/climbing/no-graph bots - skip the foothold lookup + packet build +
+        // broadcast when nobody can see the map, and invalidate the dedup snapshot so
+        // the first observed tick always re-broadcasts the current position.
+        if (!ObserverTracker.isActiveMap(bot.getMapId())) {
+            entry.movementBroadcastValid = false;
+            return;
+        }
         int x = bot.getPosition().x;
         int y = bot.getPosition().y;
         BotPhysicsEngine.MovementSnapshot snapshot = BotPhysicsEngine.movementSnapshot(entry);
@@ -912,6 +931,82 @@ class BotMovementManager {
         InPacket packet = new ByteBufInPacket(Unpooled.wrappedBuffer(data));
         Packet movePacket = PacketCreator.movePlayer(bot.getId(), packet, data.length);
         bot.getMap().broadcastMessage(bot, movePacket, false);
+    }
+
+    // Broadcast a hand-built movement fragment path ([numCommands][fragments...]) verbatim to observers. Used
+    // by GCMovementSkills for the teleport (cmd 4/3/0) and flash-jump (cmd 0/6) fragments the single-fragment
+    // sendMovementPacket above can't express — PacketCreator.movePlayer copies the bytes as-is.
+    static void broadcastRawMovement(Character bot, byte[] data) {
+        if (bot == null || bot.getMap() == null) {
+            return;
+        }
+        InPacket packet = new ByteBufInPacket(Unpooled.wrappedBuffer(data));
+        Packet movePacket = PacketCreator.movePlayer(bot.getId(), packet, data.length);
+        bot.getMap().broadcastMessage(bot, movePacket, false);
+    }
+
+    // Broadcast a flash jump so observers render the dash animation instead of a plain air-glide. Adapted
+    // from GreenCatMS (NutNNut). The client plays the flash-jump action only for movement command type 6
+    // ("fj", a RelativeLifeMovement); a normal type-0 tick conveys position but not the FJ action. Fired
+    // ONCE at the apex impulse (from tickAirborne); the arc's remaining type-0 ticks carry the rest.
+    //
+    // The fj fragment MUST be preceded, in the SAME path, by an absolute cmd-0 fragment. Per the v83 client
+    // CMovePath::Decode, a lone type-6 fragment reads no x/y — it copies the previous fragment's position
+    // (seeded with packet-header garbage) and stores the two shorts as velocity, so the bot flickers
+    // off-screen for a frame. Lead with the cmd-0 anchor; fj duration 0 (matches real captures). The two fj
+    // shorts are velocity slots, not a position delta — the dash ANIM is triggered by the fragment TYPE, so
+    // the magnitude is cosmetic (real position comes from the surrounding cmd-0 ticks).
+    static void broadcastFlashJump(BotMovementState entry, int relDx, int relDy) {
+        Character bot = entry.bot;
+        if (bot == null || bot.getMap() == null) {
+            return;
+        }
+        if (!ObserverTracker.isActiveMap(bot.getMapId())) {
+            broadcastMovement(entry); // self-gates: no-op + invalidates the dedup snapshot
+            return;
+        }
+        BotPhysicsEngine.MovementSnapshot snapshot = BotPhysicsEngine.movementSnapshot(entry);
+        int stance = snapshot.stance(); // JUMP stance while airborne
+        int fhId = resolveBroadcastFhId(entry, bot);
+        int x = bot.getPosition().x;
+        int y = bot.getPosition().y;
+        int dur = BotPhysicsEngine.cfg.TICK_MS;
+        byte[] data = new byte[23];
+        int i = 0;
+        data[i++] = 2;                       // two commands: absolute anchor + fj
+        data[i++] = 0;                       // cmd 0 — absolute, anchors the fj fragment's position
+        data[i++] = (byte) (x & 0xFF);
+        data[i++] = (byte) (x >> 8);
+        data[i++] = (byte) (y & 0xFF);
+        data[i++] = (byte) (y >> 8);
+        data[i++] = (byte) (snapshot.velX() & 0xFF);
+        data[i++] = (byte) (snapshot.velX() >> 8);
+        data[i++] = (byte) (snapshot.velY() & 0xFF);
+        data[i++] = (byte) (snapshot.velY() >> 8);
+        data[i++] = (byte) (fhId & 0xFF);
+        data[i++] = (byte) (fhId >> 8);
+        data[i++] = (byte) stance;
+        data[i++] = (byte) (dur & 0xFF);
+        data[i++] = (byte) (dur >> 8);
+        data[i++] = 6;                       // cmd 6 "fj" — RelativeLifeMovement (plays the dash action)
+        data[i++] = (byte) (relDx & 0xFF);
+        data[i++] = (byte) (relDx >> 8);
+        data[i++] = (byte) (relDy & 0xFF);
+        data[i++] = (byte) (relDy >> 8);
+        data[i++] = (byte) stance;
+        data[i++] = 0;                       // fj duration 0 — matches real captures
+        data[i] = 0;
+        InPacket packet = new ByteBufInPacket(Unpooled.wrappedBuffer(data));
+        Packet movePacket = PacketCreator.movePlayer(bot.getId(), packet, data.length);
+        bot.getMap().broadcastMessage(bot, movePacket, false);
+        // Pin the dedup cache at the post-impulse state so the next normal tick isn't re-sent redundantly.
+        entry.movementBroadcastValid = true;
+        entry.lastBroadcastX = x;
+        entry.lastBroadcastY = y;
+        entry.lastBroadcastVelX = snapshot.velX();
+        entry.lastBroadcastVelY = snapshot.velY();
+        entry.lastBroadcastStance = stance;
+        entry.lastBroadcastFh = fhId;
     }
 
     static Map<Integer, Foothold> buildFhIndex(MapleMap map) {

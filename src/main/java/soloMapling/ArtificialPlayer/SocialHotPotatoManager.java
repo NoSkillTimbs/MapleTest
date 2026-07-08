@@ -6,13 +6,17 @@ import server.maps.MapleMap;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
+import soloMapling.ArtificialPlayer.BotTownSystem.TownPresenceConfig;
+import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.server.ExecutorServiceManager;
 import soloMapling.server.MethodScheduler;
 
 import java.awt.*;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -44,6 +48,12 @@ public class SocialHotPotatoManager {
             100000200,  // Henesys Park
             100000102   // Henesys Potion Shop
     };
+
+    // Bark map scope: the four Henesys maps plus every town map in TownPresence.yaml. Built once
+    // (start / refreshMapScope), rebuilt live on !env townpresence reload. The megaphone ticker is
+    // deliberately NOT scoped per town - megaphones are server-wide, so it stays a single ticker drawing
+    // from this same pool (never fanned out) to keep the global megaphone rate unchanged.
+    private volatile Set<Integer> ambientMapIds = buildAmbientMapIds();
 
     private static final String SOCIAL_DIALOGUE_PATH = "SocialHotPotatoDialogue.yaml";
     private static final String SOCIAL_BOT_TYPE = "SocialHotPotato";
@@ -86,9 +96,26 @@ public class SocialHotPotatoManager {
     public void start() {
         if (running) return;
         running = true;
+        refreshMapScope();
         scheduleNextTick();
         scheduleNextMegaTick();
         log("[SocialHotPotato] Started.");
+    }
+
+    // Rebuild the bark map scope from config. Called on start and by !env townpresence reload so town
+    // curation applies without a restart. Does not touch the (server-wide) megaphone ticker.
+    public void refreshMapScope() {
+        ambientMapIds = buildAmbientMapIds();
+        log("[SocialHotPotato] Bark map scope: " + ambientMapIds.size() + " maps.");
+    }
+
+    private static Set<Integer> buildAmbientMapIds() {
+        Set<Integer> ids = new LinkedHashSet<>();
+        for (int id : HENESYS_MAP_IDS) {
+            ids.add(id);
+        }
+        ids.addAll(TownPresenceConfig.allTownMapIds());
+        return ids;
     }
 
     public void stop() {
@@ -131,13 +158,17 @@ public class SocialHotPotatoManager {
     }
 
     private void megaTick() {
-        Character bot = selectRandomFillerBot();
+        // Megaphones are server-wide (heard by every online player regardless of the sender's map), so the
+        // pool is unfiltered by observation - draw a sender from any eligible bot in scope.
+        Character bot = selectRandomFillerBot(false);
         if (bot == null) return;
         doMegaphone(bot);
     }
 
     private void tick() {
-        Character bot = selectRandomFillerBot();
+        // Barks are local chat/emote/chair packets, so gate on observation: only pick from maps a real
+        // player is on. Unobserved towns emit no barks (gate packets on observation).
+        Character bot = selectRandomFillerBot(true);
         if (bot == null) return;
 
         if (MovementCommands.nudgeAwayFromOverlap(bot)) return;
@@ -145,10 +176,11 @@ public class SocialHotPotatoManager {
         executeRandomAction(bot);
     }
 
-    private Character selectRandomFillerBot() {
+    private Character selectRandomFillerBot(boolean requireObserved) {
         List<Character> fillerBots = new ArrayList<>();
 
-        for (int mapId : HENESYS_MAP_IDS) {
+        for (int mapId : ambientMapIds) {
+            if (requireObserved && !GCMovement.isMapObserved(mapId)) continue; // skip unwatched maps entirely
             try {
                 MapleMap map = Server.getInstance().getChannel(0, 1).getMapFactory().getMap(mapId);
                 if (map == null) continue;

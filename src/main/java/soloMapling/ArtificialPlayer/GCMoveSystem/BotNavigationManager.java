@@ -471,6 +471,18 @@ final class BotNavigationManager {
         if (entry.inAir || entry.climbing) {
             return null;
         }
+        // F2a (SoloMapling graft): don't COMMIT a jump off a closest-profile fallback graph. While the
+        // exact jump/speed-bucket graph bakes off-thread, peekBestGraph (resolveActiveGraph) serves the
+        // nearest cached profile; its JUMP edges were validated for a different jump arc, so firing one
+        // at the bot's real (post-2026-07-06, taller) jump overshoots tiny platforms. The served graph is
+        // the exact one iff it IS the profile's cached instance (peekGraph == graph); otherwise it's a
+        // fallback and we withhold only the launch. Route/walk planning keeps using the closest graph
+        // (unchanged), and resolveTarget's navGraph-swap replan re-commits a correct jump the instant the
+        // exact graph lands. A brief stall at the launch point meanwhile is acceptable and transient.
+        if (BotNavigationGraphProvider.peekGraph(bot.getMap(), entry.movementProfile) != graph) {
+            entry.lastEdgeBlockReason = "jump-graph-warmup";
+            return null;
+        }
         Point botPos = bot.getPosition();
         if (!canExecuteSelectedJumpFromCurrentPosition(graph, entry, bot.getMap(), botPos, edge)) {
             // Bot may be standing at the top of a rope region whose bottom is the jump entry.

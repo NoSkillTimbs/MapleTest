@@ -1,4 +1,23 @@
 SocialBot:
+  CongratsLevelUp:
+    text:
+      - "gratz on lv {PLAYER_LEVEL} {PLAYER_NAME}!"
+      - "ayy {PLAYER_NAME} hit {PLAYER_LEVEL}"
+      - "gz {PLAYER_NAME}"
+      - "lv {PLAYER_LEVEL} lets goooo"
+      - "nice one {PLAYER_NAME}"
+      - "congrats {PLAYER_NAME}! {PLAYER_LEVEL} already?"
+      - "grats grats"
+      - "ooo level up! nice {PLAYER_NAME}"
+      - "gratz {PLAYER_NAME} :)"
+      - "level {PLAYER_LEVEL} pog"
+      - "keep it up {PLAYER_NAME}"
+      - "wtg {PLAYER_NAME}"
+      - "another level for {PLAYER_NAME}, nice"
+      - "gz on {PLAYER_LEVEL}!"
+      - "lets goo {PLAYER_NAME}"
+      - "nice work getting to {PLAYER_LEVEL}"
+    wait: 1
   SingleResponse:
     text:
       - "Been training slimes all morning..."
@@ -1207,4 +1226,54 @@ SocialBot:
     emote:
       - 0
       - 4
+    wait: 1
+  PartyAccept:
+    text:
+      - "wait really?? yes omg ive been SO bored, invite me!!"
+      - {line: "a party? with {PLAYER_NAME}? ok ok send the invite ^^", emote: 2}
+      - "sure why not, beats standing around here all day. invite me!"
+      - {line: "omg finally someone asked. YES. inviting me now pls", emote: 2}
+      - "ooh ok! send the invite, lemme grab my stuff"
+      - {line: "hmm... ok u seem cool {PLAYER_NAME}, im in. invite me", emote: 2}
+      - "party party party!! ok invite me before i change my mind lol"
+      - "deal! shoot me the invite"
+      - {line: "sure ^^ i was getting tired of this town anyway, invite me {PLAYER_NAME}", emote: 2}
+      - "ok but im warning u, im gonna talk the WHOLE time. invite me hehe"
+    emote:
+      - 2
+      - 3
+    wait: 1
+  PartyDecline:
+    text:
+      - "aw sry, im waiting on my guildies to log in"
+      - {line: "mm not today {PLAYER_NAME}, my pots are empty and im broke lol", emote: 7}
+      - "cant! im watching someone's shop... allegedly"
+      - {line: "nahh im in my town-chilling era rn", emote: 0}
+      - "sry, i promised my friend id wait here for them"
+      - "pass lol, with THESE stats id just embarrass u"
+      - {line: "tempting but no, i just got BACK from grinding, my hands hurt", emote: 4}
+      - "hmm pass, last party i joined took all my drops T_T"
+      - "cant today, im like 90% sure i left my inventory full"
+      - {line: "sry {PLAYER_NAME}, my whole build is standing around looking cute", emote: 3}
+      - "im waiting for a gacha ticket friend, cant leave the spot"
+      - "nah im good, the town needs me (it doesnt, but still)"
+      - "cant rn, im mid-afk technically lol"
+      - {line: "ask me again some other time, today's a no from me", emote: 0}
+    emote:
+      - 0
+      - 4
+      - 7
+    wait: 1
+  PartyJoined:
+    text:
+      - "IN. ok where are we going??"
+      - {line: "party get!! lead the way {PLAYER_NAME} ^^", emote: 2}
+      - "accepted! ok im all urs, whats the plan"
+      - {line: "yesss ok {PLAYER_NAME}, ill follow u, dont walk too fast lol", emote: 2}
+      - "we're officially a party now, no take-backs"
+      - "ok!! this is already the most exciting thing ive done all week"
+      - {line: "joined ^^ take me somewhere with good exp {PLAYER_NAME}", emote: 2}
+      - "party up! im right behind u"
+    emote:
+      - 2
     wait: 1

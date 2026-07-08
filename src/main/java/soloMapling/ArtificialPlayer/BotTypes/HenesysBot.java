@@ -24,10 +24,10 @@ import static soloMapling.ArtificialPlayer.BotDialogueHandler.getRandomResolvedL
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.nudgeAwayFromOverlap;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.pathFinderAware;
 import static soloMapling.BotLogger.log;
-import static soloMapling.Environment.EnvironmentManager.botMoveToPlatformAnyUnoccupiedSpotAware;
-import static soloMapling.Environment.EnvironmentManager.getAllCharsOnMap;
-import static soloMapling.Environment.EnvironmentManager.getCurrentPlatform;
-import static soloMapling.Environment.EnvironmentManager.getMainPlatformIds;
+import static soloMapling.Environment.PlatformPlacement.botMoveToPlatformAnyUnoccupiedSpotAware;
+import static soloMapling.Environment.PlatformPlacement.getAllCharsOnMap;
+import static soloMapling.Environment.PlatformPlacement.getCurrentPlatform;
+import static soloMapling.Environment.PlatformPlacement.getMainPlatformIds;
 import static soloMapling.server.SoloMaplingUtilities.getRandomElement;
 import static soloMapling.server.SoloMaplingUtilities.rollChanceInverse;
 

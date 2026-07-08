@@ -12,15 +12,12 @@ import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeCommands;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeQueue;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeSM;
+import soloMapling.server.BotTiming;
+import soloMapling.server.ExecutorServiceManager;
 
 import java.awt.*;
 import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
 import static soloMapling.ArtificialPlayer.BotMovementSystem.InPacketReader.getMovementRecording;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.BotMoveStream;
@@ -28,7 +25,6 @@ import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.Bo
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotEmote;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotSpeak;
 import static soloMapling.ArtificialPlayer.BotHelpers.isBot;
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
 import static soloMapling.BotLogger.log;
 import static soloMapling.server.SoloMaplingUtilities.random;
 
@@ -53,23 +49,24 @@ public class DropGameBot extends BotSM {
     };
 
     // --- State ---
+    // selectedTier/player are volatile: the drop and haste timers read them off-tick
     private DropGameState dropGameState = DropGameState.RESET;
-    private String selectedTier; // "medium" or "elite"
-    private Character player;   // the participating player
+    private volatile String selectedTier; // "medium" or "elite"
+    private volatile Character player;   // the participating player
     private DropGameLootPool lootPool;
 
     // --- Timers ---
-    private long stateStartTime;
-    private long stateEndTime;
+    private volatile long stateStartTime;
+    private volatile long stateEndTime; // read by drop timers off-tick
 
     // --- Drop game async ---
-    private ScheduledExecutorService dropScheduler;
-    private ScheduledFuture<?> dropTask;
+    // drops ride self-re-arming BotTiming one-shots; dropsActive gates stragglers
+    private volatile boolean dropsActive = false;
 
     // --- Movement playback async ---
     // `dg_potshop_1` is ~2 minutes long and BotMoveStream blocks for the full
-    // duration, so it must run off the BotSM tick thread.
-    private ExecutorService movementExecutor;
+    // duration, so it runs on the shared virtual-thread executor; cancel(true)
+    // interrupts the stream.
     private Future<?> movementTask;
 
     // --- Trade handshake ---
@@ -89,11 +86,14 @@ public class DropGameBot extends BotSM {
         IDLE_ADVERTISE,
         TRADE_WAIT,
         TRADE_VALIDATE,
+        TRADE_FINALIZE,
         PARTY_SETUP,
         PARTY_WAIT,
         PRE_GAME,
+        GAME_LAUNCH,
         ACTIVE_GAME,
-        END_GAME
+        END_GAME,
+        POST_GAME
     }
 
     private void setDropGameState(DropGameState newState) {
@@ -146,8 +146,8 @@ public class DropGameBot extends BotSM {
                     + " — already engaged with " + player.getName());
             BotTradeCommands.writeTradeChat(getChr(),
                     "Busy with " + player.getName() + "! Try again after this game.");
-            sleepAmountSeconds(1500);
-            BotTradeCommands.cancelTrade(getChr());
+            BotTiming.after(1500, () -> BotTradeCommands.cancelTrade(getChr()));
+            waitFor(2000); // hold ticks until the delayed cancel lands
             cleanupTradeState();
             return;
         }
@@ -211,6 +211,10 @@ public class DropGameBot extends BotSM {
                 tradeValidate();
                 break;
 
+            case TRADE_FINALIZE:
+                tradeFinalize();
+                break;
+
             case PARTY_SETUP:
                 partySetup();
                 break;
@@ -223,12 +227,20 @@ public class DropGameBot extends BotSM {
                 preGame();
                 break;
 
+            case GAME_LAUNCH:
+                gameLaunch();
+                break;
+
             case ACTIVE_GAME:
                 activeGame();
                 break;
 
             case END_GAME:
                 endGame();
+                break;
+
+            case POST_GAME:
+                endGameCleanup();
                 break;
 
             default:
@@ -284,8 +296,8 @@ public class DropGameBot extends BotSM {
             if (System.currentTimeMillis() > stateEndTime) {
                 dprint("TRADE_VALIDATE: partner lock timed out");
                 BotTradeCommands.writeTradeChat(getChr(), "Too slow! Trade timed out.");
-                sleepAmountSeconds(2000);
-                BotTradeCommands.cancelTrade(getChr());
+                BotTiming.after(2000, () -> BotTradeCommands.cancelTrade(getChr()));
+                waitFor(2500); // resume after the delayed cancel lands
                 cleanupTradeAndReset();
                 return;
             }
@@ -301,10 +313,12 @@ public class DropGameBot extends BotSM {
         } else if (offeredMesos == ELITE_TIER_COST) {
             selectedTier = "elite";
         } else {
-            // Invalid amount - reject
+            // Invalid amount - reject. Deliberate synchronous beat: the flavor
+            // dialogue below blocks for its YAML duration and must finish
+            // before the bot resets to advertising.
             dprint("TRADE_VALIDATE: invalid meso amount, rejecting");
             BotTradeCommands.writeTradeChat(getChr(), "Wrong amount! 10m or 50m only.");
-            sleepAmountSeconds(2000);
+            BotHelpers.blockingSleep(2000);
             BotTradeCommands.cancelTrade(getChr());
             getDialogueHandler().executeBotFlavorDialogue("InvalidMeso", DropGameBot.this);
             cleanupTradeAndReset();
@@ -314,15 +328,18 @@ public class DropGameBot extends BotSM {
         // Valid amount - confirm trade
         dprint("TRADE_VALIDATE: tier=" + selectedTier + ", confirming trade");
         BotTradeCommands.writeTradeChat(getChr(), selectedTier.toUpperCase() + " tier locked in!");
-        sleepAmountSeconds(1000);
-        BotTradeCommands.confirmTrade(getChr());
-        sleepAmountSeconds(2000);
+        BotTiming.after(1000, () -> BotTradeCommands.confirmTrade(getChr()));
+        waitFor(3000); // confirm lands at +1s; settle ~2s after it, as before
+        setDropGameState(DropGameState.TRADE_FINALIZE);
+    }
 
-        // Load loot pool for selected tier
+    // --- TRADE FINALIZE ---
+    // One tick after the delayed trade confirm: load loot pool, announce tier.
+    private void tradeFinalize() {
         lootPool = DropGameLootPool.load(selectedTier);
-        dprint("TRADE_VALIDATE: loot pool loaded, size=" + lootPool.size());
+        dprint("TRADE_FINALIZE: loot pool loaded, size=" + lootPool.size());
         if (lootPool.isEmpty()) {
-            dprint("TRADE_VALIDATE: loot pool empty for tier=" + selectedTier);
+            dprint("TRADE_FINALIZE: loot pool empty for tier=" + selectedTier);
             BotSpeak(getChr(), "Loot pool error. Refunding and resetting.");
             cleanupTradeAndReset();
             return;
@@ -380,8 +397,8 @@ public class DropGameBot extends BotSM {
         if (System.currentTimeMillis() > stateEndTime) {
             dprint("PARTY_WAIT: timed out waiting for player to accept");
             BotSpeak(getChr(), "Party invite timed out — mesos forfeited. Don't waste my time next round!");
-            sleepAmountSeconds(2000);
-            forfeitAndReset();
+            waitFor(2000); // let the line land before POST_GAME disbands + resets
+            setDropGameState(DropGameState.POST_GAME);
         }
     }
 
@@ -394,9 +411,13 @@ public class DropGameBot extends BotSM {
 
         dprint("PRE_GAME: casting Haste");
         getDialogueHandler().executeBotFlavorDialogue("PreGame", DropGameBot.this);
-        sleepAmountSeconds(1000);
+        BotTiming.after(1000, this::castHaste);
+        waitFor(3000); // haste lands at +1s, GAME_LAUNCH ticks ~2s after it
+        setDropGameState(DropGameState.GAME_LAUNCH);
+    }
 
-        // Cast Haste on both bot and player
+    // Cast Haste on both bot and player
+    private void castHaste() {
         try {
             Skill haste = SkillFactory.getSkill(HASTE_SKILL_ID);
             if (haste != null) {
@@ -407,16 +428,23 @@ public class DropGameBot extends BotSM {
         } catch (Exception e) {
             log("DropGameBot: Failed to cast Haste: " + e.getMessage());
         }
+    }
 
-        sleepAmountSeconds(2000);
+    // --- GAME LAUNCH ---
+    private void gameLaunch() {
+        if (!isPlayerOnMap()) {
+            cancelAndReset("Player left the map.");
+            return;
+        }
+
         getDialogueHandler().executeBotFlavorDialogue("GameStart", DropGameBot.this);
 
         // Start the game timer
         stateStartTime = System.currentTimeMillis();
         stateEndTime = stateStartTime + GAME_DURATION_MS;
 
-        dprint("PRE_GAME: starting movement playback + drop scheduler, gameDuration=" + GAME_DURATION_MS + "ms");
-        // Kick off the 2-minute movement recording on its own thread.
+        dprint("GAME_LAUNCH: starting movement playback + drop scheduler, gameDuration=" + GAME_DURATION_MS + "ms");
+        // Kick off the 2-minute movement recording off the tick thread.
         startMovementPlayback();
         // Stagger: drops begin a few seconds after movement starts so the bot
         // has moved away from the trade/party spot before items start raining.
@@ -455,8 +483,8 @@ public class DropGameBot extends BotSM {
         stopDropScheduler();
         getDialogueHandler().executeBotFlavorDialogue("GameEnd", DropGameBot.this);
         BotEmote(getChr(), 2);
-        sleepAmountSeconds(3000);
-        endGameCleanup();
+        waitFor(3000); // wind-down beat; POST_GAME then disbands + resets
+        setDropGameState(DropGameState.POST_GAME);
     }
 
     // =========================================================================
@@ -464,8 +492,7 @@ public class DropGameBot extends BotSM {
     // =========================================================================
 
     private void startMovementPlayback() {
-        movementExecutor = Executors.newSingleThreadExecutor();
-        movementTask = movementExecutor.submit(() -> {
+        movementTask = ExecutorServiceManager.getVirtualThreadExecutorService().submit(() -> {
             try {
                 MovementRecording mvr = getMovementRecording(
                         getChr().getMapId(), MOVEMENT_RECORDING_NAME);
@@ -477,22 +504,22 @@ public class DropGameBot extends BotSM {
     }
 
     private void startDropScheduler(int initialDelayMs) {
-        dropScheduler = Executors.newSingleThreadScheduledExecutor();
-        dropTask = dropScheduler.schedule(this::performDrop, initialDelayMs, TimeUnit.MILLISECONDS);
+        dropsActive = true;
+        BotTiming.after(initialDelayMs, this::performDrop);
     }
 
     private void scheduleNextDrop() {
-        if (dropScheduler == null || dropScheduler.isShutdown()) {
+        if (!dropsActive) {
             return;
         }
         int delay = DROP_INTERVAL_MIN_MS + random.nextInt(DROP_INTERVAL_MAX_MS - DROP_INTERVAL_MIN_MS);
-        dropTask = dropScheduler.schedule(this::performDrop, delay, TimeUnit.MILLISECONDS);
+        BotTiming.after(delay, this::performDrop);
     }
 
     private void performDrop() {
         try {
-            if (System.currentTimeMillis() >= stateEndTime) {
-                return; // Time's up, don't drop
+            if (!dropsActive || System.currentTimeMillis() >= stateEndTime) {
+                return; // Game over, don't drop
             }
 
             int itemId;
@@ -522,25 +549,14 @@ public class DropGameBot extends BotSM {
     }
 
     private void stopDropScheduler() {
-        if (dropTask != null && !dropTask.isCancelled()) {
-            dropTask.cancel(false);
-        }
-        if (dropScheduler != null && !dropScheduler.isShutdown()) {
-            dropScheduler.shutdown();
-        }
-        dropScheduler = null;
-        dropTask = null;
+        dropsActive = false; // pending BotTiming one-shots no-op on this flag
         stopMovementPlayback();
     }
 
     private void stopMovementPlayback() {
         if (movementTask != null && !movementTask.isCancelled() && !movementTask.isDone()) {
-            movementTask.cancel(true);
+            movementTask.cancel(true); // interrupt stops BotMoveStream mid-recording
         }
-        if (movementExecutor != null && !movementExecutor.isShutdown()) {
-            movementExecutor.shutdownNow();
-        }
-        movementExecutor = null;
         movementTask = null;
     }
 

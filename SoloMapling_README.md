@@ -40,7 +40,7 @@ Each bot type is a self-contained state machine that plugs into the framework. A
 
 ## How It Works
 
-Every bot runs on a scheduled timer that ticks every 2-6 seconds with randomized jitter. When real players are nearby, bots tick faster and become more active. When a map is empty, they slow down to conserve resources.
+All bots share one central tick wheel — a single scheduler dispatches each bot's brain tick onto a lightweight virtual thread, so no bot owns an OS thread and thousands of bots cost only what the visible ones do. Bots near real players tick every 2-6 seconds with randomized jitter and become more active; bots on empty maps slow down and stop broadcasting entirely.
 
 The framework is purely server-side — no client modifications required. Bots are real character objects in the game engine, indistinguishable from player-controlled characters at the network level.
 

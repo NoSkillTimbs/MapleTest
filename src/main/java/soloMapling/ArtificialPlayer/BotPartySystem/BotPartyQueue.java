@@ -37,10 +37,18 @@ public class BotPartyQueue {
         return instance;
     }
 
-    // First-wins: if an invite is already pending, new invites are dropped.
+    // Last-wins: the entry always mirrors the LATEST invite the engine actually created.
+    // Concurrent-invite serialization is already the InviteCoordinator's job (its putIfAbsent
+    // refuses a second live invite), so first-wins here only ever preserved STALE entries:
+    // the coordinator expires an unanswered invite after ~3 min but this queue never did, and
+    // a bot answering with the stale entry's old partyId hit NOT_FOUND at the coordinator -
+    // leaving the player's live invite wedged ("taking care of another invitation") for 3 min.
     public void addPartyInvite(Character fakechar, Character inviter, int partyId) {
         debugprint("addPartyInvite: bot=" + fakechar.getName() + ", inviter=" + inviter.getName() + ", partyId=" + partyId);
-        queues.putIfAbsent(fakechar, new PartyInviteEntry(inviter, partyId));
+        queues.put(fakechar, new PartyInviteEntry(inviter, partyId));
+        // Wake the bot's macro brain now so pollInvites drains this on the next ~immediate tick,
+        // rather than waiting out its slow scheduled cadence while the armed window ticks away.
+        BotRecruitManager.wakeBotForInvite(fakechar);
     }
 
     public PartyInviteEntry getPartyInvite(Character fakechar) {

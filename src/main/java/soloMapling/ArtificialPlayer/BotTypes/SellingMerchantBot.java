@@ -17,9 +17,9 @@ import java.util.function.Supplier;
 import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.NX_MERCHANT_BOT;
 import static soloMapling.ArtificialPlayer.BotTypeManager.convertBotType;
 import static soloMapling.BotLogger.log;
-import static soloMapling.Environment.EnvironmentManager.botMoveToPlatformAnyUnoccupiedSpot;
-import static soloMapling.Environment.EnvironmentManager.getCurrentPlatform;
-import static soloMapling.Environment.EnvironmentManager.getMainPlatformIds;
+import static soloMapling.Environment.PlatformPlacement.botMoveToPlatformAnyUnoccupiedSpotDynamic;
+import static soloMapling.Environment.PlatformPlacement.getCurrentPlatform;
+import static soloMapling.Environment.PlatformPlacement.getMainPlatformIds;
 import static soloMapling.FreeMarket.ArtificialShopGenerator.generateDarkScrollsList;
 import static soloMapling.FreeMarket.ArtificialShopGenerator.generateItem;
 import static soloMapling.FreeMarket.ArtificialShopGenerator.generatePotionsList;
@@ -28,7 +28,6 @@ import static soloMapling.FreeMarket.ArtificialShopGenerator.generateThiefStarsL
 import static soloMapling.FreeMarket.FMEconomyManager.priceAdjustmentRules;
 import static soloMapling.itemPool.ItemInformationProviderUtilities.getItemName;
 import static soloMapling.itemPool.ItemUtilities.getItemMarketValue;
-import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.nudgeAwayFromOverlap;
 import static soloMapling.server.SoloMaplingUtilities.getRandomElement;
 import static soloMapling.server.SoloMaplingUtilities.random;
 import static soloMapling.server.SoloMaplingUtilities.rollChanceInverse;
@@ -141,23 +140,21 @@ public class SellingMerchantBot extends BotSM {
         return msg;
     }
 
+    // Dynamic movement lands on the exact picked pixel, so the old nudgeAwayFromOverlap
+    // band-aid (recorded paths piling bots onto fixed endpoints) is no longer needed here.
     private boolean tryPlatformShuffleWhileAdvertising() {
         if (rollChanceInverse(10)) {
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getCurrentPlatform(getChr()));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getCurrentPlatform(getChr()));
             return true;
         } else if (rollChanceInverse(20)) {
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getRandomElement(List.of("m1", "m5")));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getRandomElement(List.of("m1", "m5")));
             return true;
         } else if (rollChanceInverse(30)) {
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getRandomElement(List.of("m1", "m2")));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getRandomElement(List.of("m1", "m2")));
             return true;
         } else if (rollChanceInverse(70)) {
             int currentMap = getChr().getMapId();
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getRandomElement(getMainPlatformIds(currentMap)));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getRandomElement(getMainPlatformIds(currentMap)));
             return true;
         }
         return false;
@@ -169,18 +166,14 @@ public class SellingMerchantBot extends BotSM {
             return;
         }
         if (rollChanceInverse(10)) {
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getCurrentPlatform(getChr()));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getCurrentPlatform(getChr()));
         } else if (rollChanceInverse(20)) {
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getRandomElement(List.of("m1", "m5")));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getRandomElement(List.of("m1", "m5")));
         } else if (rollChanceInverse(30)) {
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getRandomElement(List.of("m1", "m2")));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getRandomElement(List.of("m1", "m2")));
         } else if (rollChanceInverse(70)) {
             int currentMap = getChr().getMapId();
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getRandomElement(getMainPlatformIds(currentMap)));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getRandomElement(getMainPlatformIds(currentMap)));
         }
     }
 

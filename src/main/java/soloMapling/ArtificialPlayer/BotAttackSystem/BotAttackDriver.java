@@ -1,9 +1,11 @@
 package soloMapling.ArtificialPlayer.BotAttackSystem;
 
 import client.Character;
+import client.Job;
 import client.Skill;
 import client.SkillFactory;
 import client.inventory.WeaponType;
+import constants.skills.Cleric;
 import constants.skills.Hermit;
 import server.StatEffect;
 import server.life.Monster;
@@ -37,6 +39,15 @@ public final class BotAttackDriver {
     // botId -> absolute epoch-ms before which this bot may not swing again.
     private static final Map<Integer, Long> nextAttackByBot = new ConcurrentHashMap<>();
 
+    // Full-map ultimates (Dragon Roar / Genesis / Blizzard / Meteor Shower) clear the entire map in
+    // one cast, so a grinding bot shouldn't fire one every swing. On top of the normal per-swing
+    // cooldown they carry this much longer, separate cooldown; while it's cooling, AUTO keeps mobbing
+    // with the class's sustained AoE (Crusher / Shining Ray / Ice Strike / Explosion) instead of
+    // dropping to single-target. ~25s lets a bot use its ultimate roughly twice a minute.
+    // botId -> absolute epoch-ms before which this bot's full-map ultimate is unavailable.
+    private static final long FULL_MAP_ULTIMATE_COOLDOWN_MS = 25_000;
+    private static final Map<Integer, Long> nextUltimateByBot = new ConcurrentHashMap<>();
+
     // Candidate pre-filter radius (px); the per-profile reach box is the hard gate.
     private static final int SEEK_RANGE = 700;
     private static final double SEEK_RANGE_SQ = (double) SEEK_RANGE * SEEK_RANGE;
@@ -51,6 +62,11 @@ public final class BotAttackDriver {
     // within this slack (px).
     private static final int SYMMETRY_SLACK = 24;
 
+    // Cleric Heal (2301002) damages undead as an AoE in v83 (client-authoritative). A cleric-line bot
+    // casts it at an undead pack instead of its normal bolt; the MAGIC route renders the heal and applies
+    // real damage like any bot magic attack. Heal is not a charge skill, so magicChargeFor(-1) already fits.
+    private static final BotAttackProfile HEAL_PROFILE = BotAttackProfile.magicAoe(Cleric.HEAL, 1);
+
     private BotAttackDriver() {}
 
     /* Outcome of an attack attempt, for the GM command to report. */
@@ -63,8 +79,8 @@ public final class BotAttackDriver {
         }
     }
 
-    /* Which configured attack a swing uses: AUTO smart-picks; SINGLE/AOE force one slot. */
-    public enum Choice { AUTO, SINGLE, AOE }
+    /* Which configured attack a swing uses: AUTO smart-picks; SINGLE/AOE/ULTIMATE force one slot. */
+    public enum Choice { AUTO, SINGLE, AOE, ULTIMATE }
 
     /*
      * Cooldown-gated swing at the in-reach mobs (AUTO: AoE when 2+ mobs are in reach, else
@@ -79,14 +95,20 @@ public final class BotAttackDriver {
         return attack(bot, true, Choice.SINGLE);
     }
 
-    /* Force the AoE attack now, ignoring cooldown (backs !bot attackaoe <id>). */
+    /* Force the sustained AoE attack now, ignoring cooldown (backs !bot attackaoe <id>). */
     public static AttackResult forceAoe(Character bot) {
         return attack(bot, true, Choice.AOE);
     }
 
-    /* Release a despawned bot's cooldown timer so the map doesn't grow unbounded. */
+    /* Force the full-map ultimate now, ignoring both cooldowns (backs !bot attackult <id>). */
+    public static AttackResult forceUltimate(Character bot) {
+        return attack(bot, true, Choice.ULTIMATE);
+    }
+
+    /* Release a despawned bot's cooldown timers so the maps don't grow unbounded. */
     public static void clearBot(int botId) {
         nextAttackByBot.remove(botId);
+        nextUltimateByBot.remove(botId);
     }
 
     /*
@@ -111,7 +133,21 @@ public final class BotAttackDriver {
         }
         WeaponType weapon = BotAttack.resolveEquippedWeaponType(bot);
         BotAttackConfig.JobAttacks atks = BotAttackConfig.resolve(bot.getJob(), weapon);
-        return atks.single() != null ? atks.single() : atks.aoe();
+        if (atks.single() != null) {
+            return atks.single();
+        }
+        return atks.aoe() != null ? atks.aoe() : atks.ultimate();
+    }
+
+    /* True if this bot's class has any configured AoE swing (sustained or ultimate) - roaming callers use
+     * it to decide whether to step into the middle of a mob pack before firing (the AoE-reposition flourish). */
+    public static boolean hasAoeAttack(Character bot) {
+        if (bot == null) {
+            return false;
+        }
+        WeaponType weapon = BotAttack.resolveEquippedWeaponType(bot);
+        BotAttackConfig.JobAttacks atks = BotAttackConfig.resolve(bot.getJob(), weapon);
+        return atks.aoe() != null || atks.ultimate() != null;
     }
 
     private static AttackResult attack(Character bot, boolean force, Choice choice) {
@@ -127,15 +163,19 @@ public final class BotAttackDriver {
         BotAttackConfig.JobAttacks atks = BotAttackConfig.resolve(bot.getJob(), weapon);
         BotAttackProfile single = atks.single();
         BotAttackProfile aoe = atks.aoe();
+        BotAttackProfile ultimate = atks.ultimate(); // throttled full-map nuke, or null
 
-        // Forced single/aoe must have that slot; AUTO needs at least one configured attack.
+        // Forced slots must exist; AUTO needs at least one configured attack.
         if (choice == Choice.SINGLE && single == null) {
             return AttackResult.miss(bot.getJob() + " has no single-target attack");
         }
         if (choice == Choice.AOE && aoe == null) {
             return AttackResult.miss(bot.getJob() + " has no AoE attack");
         }
-        if (single == null && aoe == null) {
+        if (choice == Choice.ULTIMATE && ultimate == null) {
+            return AttackResult.miss(bot.getJob() + " has no ultimate attack");
+        }
+        if (single == null && aoe == null && ultimate == null) {
             return AttackResult.miss("no attack for job " + bot.getJob() + " / weapon " + weapon);
         }
 
@@ -147,21 +187,41 @@ public final class BotAttackDriver {
         }
         boolean facingLeft = faceTarget(bot, nearest.getPosition());
 
-        // Pick the profile. Forced single/aoe uses exactly that slot; AUTO uses the AoE skill
-        // when 2+ mobs are in its (forward) reach, else the single-target one.
+        // Pick the profile. Forced choices use exactly that slot; AUTO fires an AoE when 2+ mobs are in
+        // reach, else the single-target attack.
         BotAttackProfile profile;
+        boolean healUndead = false;
         if (choice == Choice.SINGLE) {
             profile = single;
         } else if (choice == Choice.AOE) {
             profile = aoe;
+        } else if (choice == Choice.ULTIMATE) {
+            profile = ultimate;
+        } else if (isClericVsUndead(bot, nearest)) {
+            profile = HEAL_PROFILE; // Heal-as-damage on the undead pack
+            healUndead = true;
         } else {
-            boolean useAoe = aoe != null && mobsInReach(bot, aoe, weapon, facingLeft).size() >= 2;
-            profile = useAoe ? aoe : (single != null ? single : aoe);
+            // The AoE we'd throw at a pack: the full-map ultimate when it's off its long separate
+            // cooldown, otherwise the sustained mob attack (Crusher / Shining Ray / Ice Strike /
+            // Explosion). While the ultimate cools, the bot keeps mobbing with the sustained AoE
+            // instead of dropping to single-target. Only escalate to an AoE when 2+ mobs are in reach.
+            boolean ultReady = ultimate != null && now >= nextUltimateByBot.getOrDefault(bot.getId(), 0L);
+            BotAttackProfile packAttack = ultReady ? ultimate : aoe;
+            boolean useAoe = packAttack != null && mobsInReach(bot, packAttack, weapon, facingLeft).size() >= 2;
+            if (useAoe) {
+                profile = packAttack;
+            } else {
+                profile = single != null ? single : (aoe != null ? aoe : ultimate);
+            }
         }
 
         List<Monster> targets = cap(mobsInReach(bot, profile, weapon, facingLeft), profile.numAttacked);
+        if (healUndead) {
+            targets = undeadOnly(targets); // Heal must not damage a living mob caught in the box
+        }
         if (targets.isEmpty()) {
-            return AttackResult.miss(reachDiagnostic(bot, profile, weapon, facingLeft));
+            return AttackResult.miss(healUndead ? "no undead in heal range"
+                    : reachDiagnostic(bot, profile, weapon, facingLeft));
         }
 
         int facingMask = facingLeft ? BotAttackData.FACING_LEFT_MASK : BotAttackData.FACING_RIGHT_MASK;
@@ -198,12 +258,15 @@ public final class BotAttackDriver {
             case CLOSE  -> BotAttackEffects.meleeStrike(bot, hits, skillId, profile.skillLevel,
                     bodyActionId, facingMask, profile.speed, profile.hitDelayMs);
             case RANGED -> BotAttackEffects.rangedStrike(bot, hits, skillId, profile.skillLevel,
-                    BotAttackData.projectileFor(weapon), bodyActionId, facingMask, profile.speed, profile.hitDelayMs);
+                    BotAttackData.projectileFor(weapon, bot), bodyActionId, facingMask, profile.speed, profile.hitDelayMs);
             case MAGIC  -> BotAttackEffects.magicStrike(bot, hits, skillId, profile.skillLevel,
                     bodyActionId, facingMask, profile.speed, profile.hitDelayMs);
         };
 
         nextAttackByBot.put(bot.getId(), now + profile.cooldownMs);
+        if (profile == ultimate) { // firing the throttled full-map nuke starts its long cooldown
+            nextUltimateByBot.put(bot.getId(), now + FULL_MAP_ULTIMATE_COOLDOWN_MS);
+        }
         String label = targets.size() > 1
                 ? targets.size() + " mobs (nearest '" + targets.get(0).getName() + "')"
                 : targets.get(0).getName();
@@ -219,6 +282,24 @@ public final class BotAttackDriver {
     private static int shadowDoubled(Character bot, int baseLines) {
         return BotBuffConfig.buffsForJob(bot.getJob()).contains(Hermit.SHADOW_PARTNER)
                 ? baseLines * 2 : baseLines;
+    }
+
+    // A cleric-line bot (Cleric/Priest/Bishop) whose nearest target is undead: cast Heal-as-damage instead
+    // of the normal bolt. Undead is a per-mob WZ flag reached via getStats() (there is no Monster.isUndead).
+    private static boolean isClericVsUndead(Character bot, Monster nearest) {
+        return nearest != null && bot.getJob() != null && bot.getJob().isA(Job.CLERIC)
+                && nearest.getStats() != null && nearest.getStats().isUndead();
+    }
+
+    // Keep only the undead mobs — Heal damages undead but would otherwise "heal" a living mob in the box.
+    private static List<Monster> undeadOnly(List<Monster> mobs) {
+        List<Monster> out = new ArrayList<>(mobs.size());
+        for (Monster m : mobs) {
+            if (m.getStats() != null && m.getStats().isUndead()) {
+                out.add(m);
+            }
+        }
+        return out;
     }
 
     /* Alive mobs inside the attack's reach box, nearest first. */

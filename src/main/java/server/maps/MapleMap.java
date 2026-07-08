@@ -3696,7 +3696,8 @@ public class MapleMap {
     }
 
     private static double getCurrentSpawnRate(int numPlayers) {
-        return 0.70 + (0.05 * Math.min(6, numPlayers));
+        // SoloMapling experiment: halved density, 2x pass rate — see Fable Plan 2026-07-07
+        return 0.35 + (0.025 * Math.min(6, numPlayers));
     }
 
     private int getNumShouldSpawn(int numPlayers) {

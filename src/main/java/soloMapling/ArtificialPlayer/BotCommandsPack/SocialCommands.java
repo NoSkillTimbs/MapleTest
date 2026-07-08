@@ -37,6 +37,8 @@ public class SocialCommands {
         BotChatbubbleTyping(fakechar, message, delayMillis, true);
     }
 
+    // Deliberate blocking leaf primitive: the typing rhythm IS the effect and the
+    // duration is data-driven (message length). Callers pick the thread.
     public static void BotChatbubbleTyping(Character fakechar, String message, int delayMillis, boolean showInChat) {
         StringBuilder displayedMessage = new StringBuilder();
         for (int i = 0; i < message.length(); i++) {
@@ -52,7 +54,7 @@ public class SocialCommands {
             }
 
             // Pause to simulate typing
-            BotHelpers.sleepAmountSeconds(delayMillis);
+            BotHelpers.blockingSleep(delayMillis);
         }
 
         if (showInChat) {
@@ -61,6 +63,8 @@ public class SocialCommands {
 
     }
 
+    // Deliberate blocking leaf primitive: line count is data-driven; callers
+    // (dialogue playback) depend on this holding their thread until done.
     public static void BotDialogue(Character fakechar, List<String> dialogue) {
         if (debugSkipDialog) {
             return;
@@ -68,7 +72,7 @@ public class SocialCommands {
         for (int i = 0; i < dialogue.size(); i++) {
             BotSpeak(fakechar, dialogue.get(i));
             if (i < dialogue.size() - 1) { // Skip sleep for the last element
-                BotHelpers.sleepAmountSeconds(5000);
+                BotHelpers.blockingSleep(5000);
             }
         }
     }

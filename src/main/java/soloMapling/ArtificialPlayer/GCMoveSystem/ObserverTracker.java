@@ -111,6 +111,11 @@ final class ObserverTracker {
         pool.scheduleAtFixedRate(ObserverTracker::safeRefresh, 0, POLL_MS, TimeUnit.MILLISECONDS);
     }
 
+    /* Whether the observer poll is running (started by the first GCMovement.enable). */
+    static boolean started() {
+        return STARTED.get();
+    }
+
     /* A real player is on this map (FULL tier). */
     static boolean isFull(int mapId) {
         return fullMaps.contains(mapId) || forced(mapId);

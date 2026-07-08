@@ -10,7 +10,7 @@ import tools.PacketCreator;
 
 import java.util.Objects;
 
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
+import static soloMapling.ArtificialPlayer.BotHelpers.blockingSleep;
 
 public class MapleMessengerCommands {
     public static void sendConsoleMessage(Character player, String textMessage) {
@@ -113,9 +113,11 @@ public class MapleMessengerCommands {
         sendToMessengerMembers(fakechar, fakechar.getName() + statusFlag);
     }
 
+    // Deliberate blocking leaf primitive: holds the caller through the fake
+    // typing delay so the send lands in caller order.
     public static void botSendChatFull(Character fakechar, String message, long milliseconds) {
         botTypingStatus(fakechar, true);
-        sleepAmountSeconds(milliseconds);
+        blockingSleep(milliseconds);
         botSendMessengerChat(fakechar, message);
     }
 

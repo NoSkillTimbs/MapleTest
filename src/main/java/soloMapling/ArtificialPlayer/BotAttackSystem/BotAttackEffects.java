@@ -16,6 +16,7 @@ import server.maps.MapItem;
 import server.maps.MapObject;
 import server.maps.MapObjectType;
 import server.maps.MapleMap;
+import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.server.MethodScheduler;
 import tools.PacketCreator;
 import tools.Randomizer;
@@ -116,6 +117,7 @@ public final class BotAttackEffects {
     private static boolean broadcastAndApply(Character bot, Packet packet,
                                              Map<Monster, List<Integer>> hits, short hitDelay) {
         bot.getMap().broadcastMessage(bot, packet, /* repeatToSource */ false);
+        GCMovement.markAlerted(bot); // hold the 5s ALERT pose so the bot's own idle/move broadcasts don't cancel it
         boolean anyKilled = false;
         for (Map.Entry<Monster, List<Integer>> hit : hits.entrySet()) {
             int total = 0;

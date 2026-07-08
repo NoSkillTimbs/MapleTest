@@ -4,6 +4,7 @@ import client.Character;
 import server.maps.MapleMap;
 
 import java.awt.Point;
+import java.awt.Rectangle;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
@@ -31,10 +32,21 @@ final class GCMovementDriver {
     // 20 Hz wakeups. The analytic CoarseExecutor is pure wall-clock, so the slower cadence yields
     // identical positions.
     private static final int UNOBSERVED_TICK_MS = 250;
+    // Ours (Fable Phase 3): an unobserved bot with no movement job at all doesn't need
+    // the 250ms coarse cadence either. A job started while idling begins up to ~1s
+    // late, which is invisible on a map nobody can see; on promotion the next tick
+    // returns to TICK_MS. At ~1200 mostly-idle background bots this cuts the constant
+    // movement wakeups roughly 4x.
+    private static final int UNOBSERVED_IDLE_TICK_MS = 1000;
     // Coarse "arrived" box: within this of the goal, hold (and fire arrival) instead of replanning.
     private static final int COARSE_ARRIVE_PX = 12;
     private static final boolean ENABLE_UNSTUCK = true;
     private static final int AIR_STUCK_RECOVER_TICKS = 30;
+    // Ours: live fall-off-map catch. The airborne integrator has no VR-bottom clamp, so a bot that slips
+    // through a foothold gap (or off the side) free-falls forever — the frozen-air watchdog only fires once
+    // the position STOPS changing, which a live plummet never does. Trigger a snap-back once the bot is this
+    // far outside the map's VR bounds (footholds live inside the VR, so a legit deep drop never reaches here).
+    private static final int FALL_RECOVER_SLACK_PX = 400;
     // Organic map-entry: appear standing at the spawn portal, wait a "client load" beat, then drop.
     // Mirrors WarpCommands.botEnterPortalDropDown (the recorded engine's ~1.5s lag before the drop).
     private static final long PORTAL_DROP_DELAY_MS = 1500;
@@ -43,6 +55,10 @@ final class GCMovementDriver {
     // so a bot never tries to reach a point forever. The clock resets on any real progress.
     private static final long MOVE_NO_PROGRESS_MS = 8_000;
     private static final int MOVE_PROGRESS_EPS_PX = 16;
+    // Recompute a bot's movement profile on this cadence so runtime changes (chiefly party Haste —
+    // joining/leaving a party with a high-level thief) take effect without needing a map change.
+    // refreshMovementProfile no-ops when the bucket is unchanged, so this is ~free for non-party bots.
+    private static final long PROFILE_REFRESH_INTERVAL_MS = 20_000;
 
     private static final AtomicInteger THREAD_SEQ = new AtomicInteger();
     private static final ScheduledExecutorService POOL = Executors.newScheduledThreadPool(
@@ -90,11 +106,32 @@ final class GCMovementDriver {
         Character bot = entry.bot;
         boolean active = bot != null && bot.getMap() != null
                 && ObserverTracker.isActiveMap(bot.getMapId());
-        return active ? BotPhysicsEngine.cfg.TICK_MS : UNOBSERVED_TICK_MS;
+        if (active) {
+            return BotPhysicsEngine.cfg.TICK_MS;
+        }
+        if (bot != null
+                && !GCMovement.isMoving(bot) && !GCMovement.isTraveling(bot) && !GCMovement.isFollowing(bot)) {
+            return UNOBSERVED_IDLE_TICK_MS; // jobless + unseen: idle heartbeat only
+        }
+        return UNOBSERVED_TICK_MS;
+    }
+
+    // Throttled profile recompute. Self-thief speed/jump is static (job/level), but party Haste is dynamic
+    // (roster changes at runtime), and the profile is otherwise only built once at enable(). Every
+    // PROFILE_REFRESH_INTERVAL_MS we recompute; refreshMovementProfile returns fast and re-warms only when
+    // the speed/jump bucket actually changed, so a non-party bot pays just one fromCharacter() per interval.
+    private static void maybeRefreshProfile(BotMovementState entry) {
+        long now = System.currentTimeMillis();
+        if (now - entry.lastProfileRefreshMs < PROFILE_REFRESH_INTERVAL_MS) {
+            return;
+        }
+        entry.lastProfileRefreshMs = now;
+        BotMovementManager.refreshMovementProfile(entry);
     }
 
     private static void safeTick(BotMovementState entry) {
         try {
+            soloMapling.server.BotPerfStats.MOVEMENT_TICKS.increment();
             tick(entry);
         } catch (Throwable t) {
             // A thrown exception must not break the self-reschedule chain — swallow so the bot keeps ticking.
@@ -107,8 +144,34 @@ final class GCMovementDriver {
             stop(entry);
             return;
         }
+        // Pick up runtime profile changes (party Haste) before the map-change branch, so onMapChange warms
+        // the new map's graph with the up-to-date profile. Throttled + no-op when unchanged (see helper).
+        maybeRefreshProfile(entry);
         if (entry.lastMapId != bot.getMapId()) {
             onMapChange(entry, bot);
+            return;
+        }
+
+        // Sitting in a chair (e.g. a grinding TrainingBot on a rest break): hold the sit and skip the
+        // tick. botSitChair set the SIT stance and broadcast showChair; if the driver kept idling it
+        // would reset the stance to standing (idleOnGround -> syncCharacterState) and broadcast that
+        // every tick, snapping the bot upright the instant it sits. A sitting bot isn't moving, so
+        // nothing is lost by holding; botCancelChair clears the chair and the driver resumes normally.
+        // Mirrors the old engine's getChair() > 0 guards in MovementCommands.
+        if (bot.getChair() > 0) {
+            return;
+        }
+
+        // Rope rest hold (grind break): the bot is deliberately hanging idle on a rope. Freeze the hang and
+        // broadcast — never run nav / steering / player-reaction / contact-knockback below, any of which
+        // could dislodge it. Set on arrival by GrindBreakRoutine, cleared on break end (and leaveGrind).
+        if (entry.resting) {
+            if (entry.climbing) {
+                BotPhysicsEngine.holdClimb(entry, bot);
+            } else {
+                BotPhysicsEngine.idleOnGround(entry, bot); // shouldn't happen (rest is a rope hang), but hold anyway
+            }
+            broadcastIfObserved(entry);
             return;
         }
 
@@ -432,6 +495,7 @@ final class GCMovementDriver {
     private static void tickStuckDetection(BotMovementState entry) {
         entry.unstuckCooldownMs = BotMovementManager.tickDown(entry.unstuckCooldownMs);
         tickFrozenAirborneWatchdog(entry);
+        tickFallOffMapRecovery(entry); // ours: catch a live plummet the frozen-air watchdog above misses
         if (entry.inAir || entry.climbing || entry.graphWarmupFallback
                 || (entry.navEdge == null && entry.moveTarget == null)) {
             entry.stuckMs = 0;
@@ -485,6 +549,46 @@ final class GCMovementDriver {
         Point ground = BotPhysicsEngine.findGroundPoint(map, new Point(base.x, base.y - 1));
         BotPhysicsEngine.teleportTo(entry, entry.bot, ground != null ? ground : pos);
         BotMovementManager.resetEntryStateAfterTeleport(entry);
+        broadcastIfObserved(entry);
+    }
+
+    // Live fall-off-map recovery: if the bot has left the map's VR bounds by more than a slack margin (fell
+    // below the floor or off the side), snap it back to solid ground under its current goal. Mirrors the
+    // frozen-air watchdog's recovery, but keys off "outside the map" instead of "frozen in the air", so it
+    // catches an active free-fall. Ours (Fable fluid-combat pass).
+    private static void tickFallOffMapRecovery(BotMovementState entry) {
+        Character bot = entry.bot;
+        MapleMap map = (bot != null) ? bot.getMap() : null;
+        if (map == null) {
+            return;
+        }
+        Rectangle vr = map.getMapArea();
+        if (vr == null || vr.width <= 0 || vr.height <= 0) {
+            return; // no usable VR bounds — can't tell inside from outside
+        }
+        Point pos = bot.getPosition();
+        if (pos == null) {
+            return;
+        }
+        boolean belowFloor = pos.y > vr.y + vr.height + FALL_RECOVER_SLACK_PX;
+        boolean offSides = pos.x < vr.x - FALL_RECOVER_SLACK_PX
+                || pos.x > vr.x + vr.width + FALL_RECOVER_SLACK_PX;
+        if (!belowFloor && !offSides) {
+            return;
+        }
+        // Snap to ground under the current goal (grind spot / nav target); if there's no goal, drop onto the
+        // first foothold below the VR top at the bot's clamped X.
+        Point goal = entry.moveTarget != null ? entry.moveTarget : entry.navTargetPos;
+        Point base = (goal != null)
+                ? new Point(goal.x, goal.y)
+                : new Point(Math.max(vr.x, Math.min(vr.x + vr.width, pos.x)), vr.y);
+        Point ground = BotPhysicsEngine.findGroundPoint(map, new Point(base.x, base.y - 1));
+        BotPhysicsEngine.teleportTo(entry, bot, ground != null ? ground : base);
+        BotMovementManager.resetEntryStateAfterTeleport(entry);
+        // De-thrash: resetEntryStateAfterTeleport only clears NAV state, leaving moveTarget — so the bot
+        // would re-aim at the same too-far-below goal and re-fire the same doomed descent (teleport loop =
+        // the "glitchy" fall on tall maps). Drop the goal too so the brain re-decides a safe target next tick.
+        entry.moveTarget = null;
         broadcastIfObserved(entry);
     }
 }

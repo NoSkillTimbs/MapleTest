@@ -222,12 +222,14 @@ public class DropCommands {
         }
     }
 
+    // Deliberate blocking leaf primitive: per-item pickup stagger, item count is
+    // data-driven. Callers (blackjack payouts, loot scripts) rely on the hold.
     public static void lootItemListOnFloor(Character fakechar, List<MapObject> items) {
         for (MapObject item : items) {
             MapItem mapItem = (MapItem) item;
             final Packet pickupPacket = PacketCreator.removeItemFromMap(mapItem.getObjectId(), 2, fakechar.getId());
             fakechar.getMap().pickItemDrop(pickupPacket, mapItem);
-            BotHelpers.sleepAmountSeconds(100);
+            BotHelpers.blockingSleep(100);
         }
     }
 

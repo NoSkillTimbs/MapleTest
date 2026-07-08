@@ -65,6 +65,14 @@ public final class BotAttackProfile {
         return new BotAttackProfile(Route.CLOSE, AOE_MOBS, lines, 130, 80, 780, (short) 320, MELEE_SPEED, skill, altSkill);
     }
 
+    // A multi-target primary swing with a caller-set mob cap - a single-target skill that players
+    // main for mobbing (Spear/Pole-Arm Crusher). Faster cooldown than the AoE factories since it's the
+    // bread-and-butter attack, not an occasional pack-clear. Reach is a fallback only; melee reads the
+    // skill's real WZ box when it has one.
+    public static BotAttackProfile meleeMultiVar(int skill, int altSkill, int mobs, int lines) {
+        return new BotAttackProfile(Route.CLOSE, mobs, lines, 130, 80, 720, (short) 300, MELEE_SPEED, skill, altSkill);
+    }
+
     // A no-skill basic swing (skillId 0) - the plain melee attack a Beginner makes with a sword
     // before any job skills exist. Single target, one line, melee reach. The render path uses the
     // weapon's own swing keyframe (BotAttackData.actionFor) and the profile's reach box, since there

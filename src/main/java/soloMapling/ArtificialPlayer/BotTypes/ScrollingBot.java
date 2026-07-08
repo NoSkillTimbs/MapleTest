@@ -3,7 +3,6 @@ package soloMapling.ArtificialPlayer.BotTypes;
 import client.Character;
 import client.inventory.Equip;
 import soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands;
-import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.ChatMessage;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
 import soloMapling.ArtificialPlayer.BotSM;
@@ -142,7 +141,7 @@ public class ScrollingBot extends BotSM {
             getDialogueHandler().executeBotFlavorDialogue(isSuccess ? "ScrollSuccess" : "ScrollFail", this);
         }
 
-        BotHelpers.sleepAmountSeconds(10000 + random.nextInt(5001)); // 10-15 seconds
+        waitForRandom(10000, 15000); // pace the next scroll 10-15s out (gated wait, no sleep)
         return true;
     }
 

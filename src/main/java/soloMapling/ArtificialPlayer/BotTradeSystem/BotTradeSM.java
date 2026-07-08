@@ -6,13 +6,13 @@ import client.inventory.Item;
 import server.Trade;
 import soloMapling.ArtificialPlayer.BotBlockList;
 import soloMapling.ArtificialPlayer.BotSM;
+import soloMapling.server.BotTiming;
 
 import java.util.List;
 
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotEmote;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotSpeak;
 import static soloMapling.ArtificialPlayer.BotHelpers.convertItemIdToName;
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
 import static soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeCommands.getTradePartnerCharacter;
 import static soloMapling.DebugUtilities.debugprint;
 import static soloMapling.FreeMarket.FMEconomyManager.formatPriceToShorthand;
@@ -185,13 +185,12 @@ public class BotTradeSM {
                 if (lastTradeResult != Trade.TradeResult.SUCCESSFUL) {
                     BotEmote(getChr(), 4);
                     BotSpeak(getChr(), "Why did you decline?");
-                    sleepAmountSeconds(2000);
                 } else {
                     BotEmote(getChr(), 2);
                     BotSpeak(getChr(), "Thank you!");
-                    sleepAmountSeconds(2000);
                     getParent().setLastTradeResult(Trade.TradeResult.SUCCESSFUL);
                 }
+                getParent().waitFor(2000); // farewell beat before COMPLETED ticks
                 lastTradeResult = null;
                 setTradeState(TradeState.COMPLETED);
                 break;
@@ -201,8 +200,10 @@ public class BotTradeSM {
                 break;
             case TIMED_OUT:
                 BotTradeCommands.writeTradeChat(getChr(), "Timed Out!");
-                sleepAmountSeconds(2000);
-                BotTradeCommands.declineTradeInvite(getChr());
+                // decline (closes the trade window) lands 2s after the message; hold
+                // the bot slightly past it so nothing runs while the window is open
+                BotTiming.after(2000, () -> BotTradeCommands.declineTradeInvite(getChr()));
+                getParent().waitFor(2500);
                 setTradeCompleted();
                 setTradeState(TradeState.COMPLETED);
                 break;
@@ -369,8 +370,8 @@ public class BotTradeSM {
     protected void declineTradeOffer() {
         BotBlockList.getInstance().addToBlockList(getChr().getId(), getTradePartnerCharacter(getChr()).getId());
         BotTradeCommands.writeTradeChat(getChr(), "Nah I'm good. Good bye.");
-        sleepAmountSeconds(2000);
-        BotTradeCommands.declineTradeInvite(getChr());
+        BotTiming.after(2000, () -> BotTradeCommands.declineTradeInvite(getChr()));
+        getParent().waitFor(2500); // hold until the delayed decline lands
     }
 
     public void onTradeSuccess() {

@@ -4,22 +4,33 @@ import client.Character;
 import constants.game.ExpTable;
 import constants.id.MapId;
 import net.server.Server;
+import net.server.world.Party;
+import net.server.world.PartyCharacter;
 import net.server.world.World;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotAttackDriver;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotBuffDriver;
+import soloMapling.ArtificialPlayer.BotOptionMenu;
+import soloMapling.ArtificialPlayer.BotPartySystem.BotPartyQueue;
+import soloMapling.ArtificialPlayer.BotPartySystem.BotRecruitManager;
 import soloMapling.ArtificialPlayer.BotSM;
+import soloMapling.ArtificialPlayer.BotTypeManager;
 import server.life.Monster;
 import server.maps.MapleMap;
 import server.maps.Portal;
 import soloMapling.ArtificialPlayer.BotDialogueHandler;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
+import soloMapling.ArtificialPlayer.BotGrindSystem.DeepHub;
 import soloMapling.ArtificialPlayer.BotGrindSystem.GrindBrain;
 import soloMapling.ArtificialPlayer.BotGrindSystem.MapMobIndex;
+import soloMapling.ArtificialPlayer.BotGrindSystem.TrainingMapChooser;
 import soloMapling.ArtificialPlayer.BotGrindSystem.SpotFinder;
 import soloMapling.ArtificialPlayer.BotGrindSystem.TrainingMap;
 import soloMapling.ArtificialPlayer.BotGrindSystem.TrainingMapFinder;
+import soloMapling.ArtificialPlayer.BotTownSystem.TownLoiter;
 import soloMapling.ArtificialPlayer.BotWanderSystem.BotWanderSystem;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
+import soloMapling.server.EventMessageSystem.EventBus;
+import soloMapling.server.EventMessageSystem.EventFactory;
 import soloMapling.server.ExecutorServiceManager;
 
 import java.awt.Point;
@@ -39,6 +50,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotEmote;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotFullChat;
+import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotSpeak;
+import static soloMapling.ArtificialPlayer.BotHelpers.isBot;
+import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.botCancelChair;
 import static soloMapling.BotLogger.log;
 
 // A roaming grinder. Spawns in a base town, travels out to a level-appropriate map with mobs, grinds
@@ -62,7 +76,12 @@ import static soloMapling.BotLogger.log;
 public class TrainingBot extends BotSM {
 
     // ── Tunables (decoration, not balance — rough is fine) ───────────────────
-    private static final long COMBAT_TICK_MS = 500;          // REAL-tier swing cadence (shared ticker)
+    // REAL-tier swing/decision cadence (shared ticker). Only OBSERVED grinders do real work here — combatTick
+    // early-returns for non-GRIND and grind.tick early-returns on an unobserved map — so raising the rate
+    // spends LOD bandwidth on the handful of on-screen bots (snappier reacquire, tighter jump-attack/blink
+    // timing, more responsive loot vacuum) while unobserved grinders only pay a doubled cheap early-return.
+    // UNTESTED: validate the combat sweep cost with !env perf before/after; revert to 500 if it climbs.
+    private static final long COMBAT_TICK_MS = 250;          // was 500; observation-tiered by the early-returns above
     private static final double KILLS_PER_MIN = 30.0;        // abstract grind speed
     private static final long GRIND_MIN_MS = 600_000;        // a grind session lasts 10–20 min
     private static final long GRIND_MAX_MS = 1_200_000;
@@ -104,26 +123,16 @@ public class TrainingBot extends BotSM {
     private static final double SAUNA_VIP_CHANCE = 0.40;     // 60% regular sauna / 40% VIP sauna
     private static final long DOOR_WALK_MAX_MS = 20_000;     // cap the door walk so a missed arrival can't stall the trip
     private static final long SAUNA_TRIP_TIMEOUT_MS = 300_000; // whole-trip watchdog → force-recover to town if it hangs
-    private static final int LEVEL_BAND = 12;                // full-weight comfort band around the bot's level
     private static final int LEVEL_CAP = 195;                // guard (no real cap intended — see spec)
-    // Map discovery: low-level bots hug their spawn town; the wander radius (hops from town) ramps fast
-    // because Victoria's worthwhile maps sit a fair few hops out and 30+ is already "highish" there. Past
-    // ANYWHERE_LEVEL the radius opens up to essentially the whole foot-connected landmass.
-    private static final int[][] HOPS_BY_LEVEL = {           // {level, hops}, linearly interpolated between points
-            {1, 1}, {15, 2}, {30, 4}, {50, 8}, {70, 10}
-    };
-    private static final int ANYWHERE_LEVEL = 70;            // 70+ : open the radius to the whole landmass
-    private static final int MAX_HOPS = 20;                  // "anywhere" radius; the walkable BFS stops at the coast anyway
-    private static final double LOW_MAP_WEIGHT = 0.15;       // pick-weight for easy maps below the band ("chilling")
-    // Distance bias: within the reachable set, fresh bots favor maps close to town and higher bots favor
-    // maps at the far edge of their reach, ramping to full "venture" by VENTURE_FULL_LEVEL.
-    private static final int VENTURE_FULL_LEVEL = 50;        // level by which a bot fully prefers far maps
-    private static final double DISTANCE_WEIGHT_BASE = 0.15; // floor so a non-preferred-distance map is still possible
+    // Map-selection policy (bands, chill visits, wander radius, fit/distance/capacity weighting, the
+    // occupancy registry) lives in BotGrindSystem/TrainingMapChooser — doDecide only choreographs.
     // First-trip warp: on the VERY FIRST decision to go train (mainly world startup), most bots teleport
     // straight to the picked grind map instead of walking there, so the world looks already-populated with
     // grinders rather than a town-emptying migration. One-time only (firstTrip) — every later trip travels
     // naturally. Gated on the town being unobserved so a watching player never sees a bot blink out.
     private static final double FIRST_TRIP_TELEPORT_CHANCE = 0.70;
+
+    // ── Grind breaks (rest flavor) — all state, knobs, and behavior live in GrindBreakRoutine ──
 
     // ── Self-repair watchdog (macro tick) ────────────────────────────────────
     // If the bot is observed but lands no hit for this long it's genuinely stuck (wedged / boxed in / dead
@@ -134,14 +143,17 @@ public class TrainingBot extends BotSM {
     private static final long REPAIR_COOLDOWN_MS = 12_000;    // min gap between repair actions, so each one gets a window to prove out
 
     // ── Map crowding balance (spread the cohort across maps, not just spots) ──────
-    // A map's bot carrying capacity = its spawn-point budget / this (≈ one bot per N spawn points). Tuned so
-    // "map at capacity" ≈ "every spot claimed". Selection (weightedPick) hard-caps at this; the crowd-bail
-    // relieves a map that fills up after bots commit by sending the surplus a hop deeper.
-    private static final int SPAWN_POINTS_PER_BOT = 5;        // carrying capacity divisor (calibrate vs !env grindprofile)
+    // A map's bot carrying capacity = its claimable-spot count (SpotFinder.mapBotCapacity), so "map at
+    // capacity" IS "every spot claimed" by construction. Selection (weightedPick) hard-caps at this; the
+    // crowd-bail relieves a map that fills up after bots commit by sending the surplus a hop deeper.
     private static final long MAP_SATURATED_DWELL_MS = 8_000; // saturation must persist this long before a crowd-bail (ride out arrival races)
     private static final long MAP_EXCLUDE_MS = 45_000;        // don't re-pick a map we just left for crowding
     private static final int MAX_MAP_HOPS_PER_EPISODE = 2;    // crowd-driven map changes before the bot settles & shares
-    private static final int MAX_REDECIDES_PER_EPISODE = 2;   // capacity-reservation re-rolls before accepting an over-cap map
+    // Crowd-bail runs unobserved too: an unobserved changeMap is invisible and near-free, and it levels
+    // crowding BEFORE a player arrives — with the old observed-only gate, a stacked map showed its full
+    // stack at the exact moment someone first walked in. Unobserved bots tick at 60-120s while grinding,
+    // so unobserved relief paces itself in minutes, not seconds. Flip to false to restore the old gate.
+    private static final boolean CROWD_BAIL_UNOBSERVED = true;
 
     // ── Ambient dialogue (context-token flavor; spoken only when observed, throttled) ──
     // Idle self-muttering only - reacting to nearby players is the movement driver's job
@@ -153,19 +165,9 @@ public class TrainingBot extends BotSM {
     private static final long BUFF_MIN_MS = 90_000;
     private static final long BUFF_MAX_MS = 120_000;
 
-    // ── Organic loot tunables (collect own + free-for-all drops naturally, not a vacuum) ──
-    private static final int LOOT_SEEK_PX = 900;             // look this far for a drop worth walking to
-    private static final int LOOT_PICKUP_PX = 60;            // close enough to grab (≈ vanilla "on top of it")
-    private static final long LOOT_GAP_MIN_MS = 100;         // stagger between pickups so they don't all pop at once
-    private static final long LOOT_GAP_MAX_MS = 250;
-
     // ── Shared combat ticker (one task for ALL training bots) ────────────────
     private static final Set<TrainingBot> ACTIVE_GRINDERS = ConcurrentHashMap.newKeySet();
     private static volatile boolean combatTickerStarted = false;
-
-    // Per-map count of training bots currently targeting/grinding each map, so map selection can prefer
-    // less-crowded maps — spreading the population across the world, including the quiet noob maps.
-    private static final Map<Integer, AtomicInteger> BOTS_PER_MAP = new ConcurrentHashMap<>();
 
     private static synchronized void ensureCombatTicker() {
         if (combatTickerStarted) {
@@ -178,6 +180,7 @@ public class TrainingBot extends BotSM {
 
     // Swing every grinding bot whose map a real player can see. One exception per bot never stops the ticker.
     private static void combatTickAll() {
+        long sweepStart = System.currentTimeMillis();
         for (TrainingBot bot : ACTIVE_GRINDERS) {
             try {
                 bot.combatTick();
@@ -185,6 +188,27 @@ public class TrainingBot extends BotSM {
                 // a single bot's combat error must never kill the shared ticker
             }
         }
+        soloMapling.server.BotPerfStats.recordCombatSweep(
+                System.currentTimeMillis() - sweepStart, ACTIVE_GRINDERS.size());
+    }
+
+    // How many bots the shared combat ticker currently visits (for !env perf).
+    public static int activeGrinderCount() {
+        return ACTIVE_GRINDERS.size();
+    }
+
+    // Fable Phase 3: an unobserved GRINDING bot is the deep-background case - abstract
+    // EXP accrues by elapsed time (doGrind) and the watchdog skips unobserved bots, so
+    // a 60-120s heartbeat loses nothing and cuts the idle macro load ~10x. All other
+    // phases (travel/decide/town/shop) keep the normal slow tick so the bot's life
+    // keeps moving between grind sessions. A player entering the map still wakes the
+    // bot instantly via the map-entry nudge.
+    @Override
+    protected long lowPriorityDelayMs() {
+        if (phase == Phase.GRIND) {
+            return 60_000 + rng.nextInt(60_000);
+        }
+        return super.lowPriorityDelayMs();
     }
 
     private void combatTick() {
@@ -196,7 +220,8 @@ public class TrainingBot extends BotSM {
     }
 
     // ── Macro brain state ────────────────────────────────────────────────────
-    private enum Phase { INIT, IN_TOWN, SHOP_TRAVEL, SHOP_DWELL, SHOP_RETURN, DECIDE, GO_TRAIN, GRIND, GO_TOWN }
+    private enum Phase { INIT, IN_TOWN, SHOP_TRAVEL, SHOP_DWELL, SHOP_RETURN, DECIDE, GO_TRAIN, GRIND, GO_TOWN,
+        BREAK_TRAVEL, BREAK_REST }
 
     private volatile Phase phase = Phase.INIT;
     private boolean phaseEntered = false;     // has this phase run its one-time setup?
@@ -243,7 +268,30 @@ public class TrainingBot extends BotSM {
     private int crowdHopsThisEpisode = 0;
     private long mapSaturatedSinceMs = 0L;       // when the current grind first read saturated (0 = not saturated)
 
+    // ── Grind breaks (macro tick only; state + behavior in GrindBreakRoutine) ──
+    private final GrindBreakRoutine breaks = new GrindBreakRoutine(this);
+
     private final Random rng = new Random();
+
+    // Interactive menu (a player chats the bot's name; the Dispatcher routes it here via
+    // displayCommands). Rides the shared inquirer/tertiary path - see BotOptionMenu. Two variants:
+    // "Follow me!" only appears once the bot is actually in a party (asking a stranger to be
+    // followed is meaningless), and "Wanna party up?" disappears once it is.
+    // Keyword lists are matched by substring IN OPTION ORDER - keep the flavor-chat option's
+    // keywords narrow so a typed sentence like "how about joining my party" can't hijack the
+    // party roll (greedy "how"/"train" did exactly that in live test round 2).
+    private final BotOptionMenu soloMenu = new BotOptionMenu(this,
+            List.of("How's the training?", "Wanna party up?", "Goodbye"),
+            List.of(List.of("hows", "how is", "how goes"),
+                    List.of("party", "team", "join"),
+                    List.of("bye", "goodbye", "cya", "later")),
+            this::onSoloMenuSelect);
+    private final BotOptionMenu partyMenu = new BotOptionMenu(this,
+            List.of("How's the training?", "Follow me!", "Goodbye"),
+            List.of(List.of("hows", "how is", "how goes"),
+                    List.of("follow", "come", "lead"),
+                    List.of("bye", "goodbye", "cya", "later")),
+            this::onPartyMenuSelect);
 
     public TrainingBot(Character character) {
         super(character);
@@ -251,9 +299,47 @@ public class TrainingBot extends BotSM {
         dialoguePath = "TrainingBotDialogue.yaml";
     }
 
+    @Override
+    public void displayCommands(Character chr) {
+        if (getChr().getParty() != null) {
+            soloMenu.deactivate();
+            partyMenu.show(chr);
+        } else {
+            partyMenu.deactivate();
+            soloMenu.show(chr);
+        }
+    }
+
+    private boolean menuActive() {
+        return soloMenu.isActive() || partyMenu.isActive();
+    }
+
+    // Mid-recruit: a conversation is open or the bot said "invite me" and the window is live.
+    // Grind self-repair (teleport/bail), crowd-bail, and the session-end walk-off all hold during
+    // this - a bot that says yes and then blinks across the map breaks the exchange.
+    boolean recruitingNow() { // package-visible: GrindBreakRoutine defers its stand-up on a live recruit
+        return menuActive() || BotRecruitManager.isArmed(getChr().getId());
+    }
+
+    // Conversing players expect snappy replies; and once the bot has said "invite me" it must keep
+    // ticking fast through the whole armed window so pollRecruitInvite drains the incoming invite
+    // promptly (not just while the menu is open). Otherwise the base observed/unobserved policy holds
+    // (including the 60-120s deep-grind override below).
+    @Override
+    public void checkPrioritySpeed() {
+        if (recruitingNow()) {
+            setPriorityHigh();
+            return;
+        }
+        super.checkPrioritySpeed();
+    }
+
     private void enterPhase(Phase next) {
         if (phase == Phase.SHOP_DWELL) {
             BotWanderSystem.stop(getChr()); // leaving a shop: end the flavor wander before travelling out
+        }
+        if (phase == Phase.IN_TOWN) {
+            TownLoiter.stop(getChr()); // leaving town: end the loiter (stop fidget, free the ledge claim)
         }
         phase = next;
         phaseEntered = false;
@@ -287,7 +373,13 @@ public class TrainingBot extends BotSM {
             case GRIND -> doGrind();
             case GO_TOWN -> doTravel(homeMapId >= 0 ? homeMapId : MapId.HENESYS,
                     Phase.IN_TOWN, Phase.IN_TOWN);
+            case BREAK_TRAVEL -> doBreakTravel();
+            case BREAK_REST -> doBreakRest();
         }
+
+        pollRecruitInvite(); // gated party-invite drain (the "wanna party up?" flow)
+        soloMenu.poll();
+        partyMenu.poll();    // kept last: a "Follow me!" selection converts this bot away
     }
 
     // ── Phases ───────────────────────────────────────────────────────────────
@@ -318,8 +410,17 @@ public class TrainingBot extends BotSM {
         if (!phaseEntered) {
             phaseEntered = true;
             crowdHopsThisEpisode = 0; // back home -> fresh outing, reset the crowd-migration budget
-            phaseDeadlineMs = now() + dwellMs();
             buildShopPlan();
+            // A deep hub's restock is an ON-MAP food-cart / grocer (no separate store map), so walk to it in
+            // place and linger like a shop browse instead of idling on the entry portal. Extends the dwell.
+            boolean errand = maybeStartHubErrand();
+            if (!errand) {
+                // Normal town return: walk off the arrival portal to a scattered spot and fidget there, so a
+                // town of returning grinders reads as milling players instead of a statue clump on the portal.
+                // A hub errand already walks the bot to its vendor, so it doesn't need this.
+                TownLoiter.settle(getChr());
+            }
+            phaseDeadlineMs = now() + (errand ? shopDwellMs() : dwellMs());
             if (rng.nextInt(3) == 0) {
                 BotEmote(getChr(), 1 + rng.nextInt(7)); // a little life in town
             }
@@ -353,6 +454,24 @@ public class TrainingBot extends BotSM {
             case 2 -> { shopQueue.add(potion); shopQueue.add(equip); }
             default -> { shopQueue.add(equip); shopQueue.add(potion); }
         }
+    }
+
+    // Deep-hub town errand: a hub sits inside a dungeon, so its "shop" is an on-map food-cart / grocer NPC
+    // rather than a separate store map (TOWN_SHOPS). With the usual shop chance, walk to that vendor and
+    // linger — reads as restocking pots — instead of idling on the entry portal. Returns true when started
+    // (so IN_TOWN uses the longer shop-browse dwell). Only fires while actually standing on the home hub.
+    private boolean maybeStartHubErrand() {
+        Character chr = getChr();
+        DeepHub.Info hub = DeepHub.of(homeMapId);
+        if (hub == null || hub.potionNpc() == null || chr.getMapId() != homeMapId) {
+            return false; // not a deep hub, no on-map vendor, or not currently at home
+        }
+        if (!shopQueue.isEmpty() || rng.nextDouble() >= SHOP_VISIT_CHANCE) {
+            return false; // a store itinerary already covers this stop, or skipping the errand this visit
+        }
+        GCMovement.move(chr, hub.potionNpc().x, hub.potionNpc().y);
+        sayContext("ShopRestock", chr, null);
+        return true;
     }
 
     // Browse a store for a randomized beat, then move to the next store or head back out to train.
@@ -390,6 +509,7 @@ public class TrainingBot extends BotSM {
             enterPhase(Phase.DECIDE);
             return;
         }
+        TownLoiter.stop(chr); // this async errand leaves town without enterPhase - end the loiter first
         saunaTripActive = true;
         saunaTripDone = false;
         saunaTripDeadlineMs = now() + SAUNA_TRIP_TIMEOUT_MS;
@@ -462,35 +582,38 @@ public class TrainingBot extends BotSM {
     // toward level-appropriate + less-crowded maps, with a chance to chill at an easier map.
     private void doDecide() {
         Character chr = getChr();
-        int level = chr.getLevel();
-        int reach = hopsForLevel(level);
-        Set<Integer> excluded = crowdExcludedMaps(); // maps on crowd-cooldown (pruned) — steer away from them
-
-        // Pick a level-appropriate, uncrowded map and RESERVE a slot on it. weightedPick hard-caps maps at
-        // capacity, so the pick is already biased to maps with headroom (and, transitively, to deeper hops
-        // once the near maps fill). The reservation loop closes the cohort race: if our atomic increment
-        // pushed the map OVER capacity (another bot grabbed the last slot at the same instant), release and
-        // re-pick — the bumped count now hard-zeros that map, steering us deeper.
-        TrainingMap pick = null;
-        for (int attempt = 0; attempt <= MAX_REDECIDES_PER_EPISODE; attempt++) {
-            List<TrainingMap> eligible = TrainingMapFinder.findTrainingMaps(
-                    chr.getMapId(), level, LEVEL_BAND, reach, excluded);
-            if (eligible.isEmpty()) {
-                // Nothing reachable with mobs (or all on cooldown) — idle in town and try again later.
-                debugChat("DECIDE: nothing reachable (lv " + level + ", reach " + reach + ") -> idle in town");
-                enterPhase(Phase.IN_TOWN);
-                return;
-            }
-            TrainingMap candidate = weightedPick(eligible, level, reach);
-            setTrainTarget(candidate.mapId(), candidate.mobLevel()); // reserve a slot (atomic increment)
-            if (botsOnMap(candidate.mapId()) <= capacityFor(candidate.mapId())
-                    || attempt == MAX_REDECIDES_PER_EPISODE) {
-                pick = candidate; // within capacity, or out of re-rolls -> accept (saturated region: share)
-                break;
-            }
-            clearTrainTarget(); // raced over capacity -> drop the reservation and re-pick deeper
-            debugChat("DECIDE: map " + candidate.mapId() + " over cap, re-picking");
+        // Station-here handoff (FollowerBot's "Train here with me!"): grind the current map, skip
+        // discovery entirely - the map BFS excludes its origin, so without this the bot always migrates.
+        if (BotRecruitManager.consumeStationHere(chr.getId()) && MapMobIndex.level(chr.getMapId()) >= 0) {
+            debugChat("DECIDE: station-here -> grind current map " + chr.getMapId());
+            setTrainTarget(chr.getMapId(), Math.max(1, MapMobIndex.level(chr.getMapId())));
+            firstTrip = false;
+            enterPhase(Phase.GRIND);
+            return;
         }
+        // Party-aware: partied with a real player -> train on their map (or hold the current map
+        // while they're parked somewhere mobless). Deliberately skips the capacity/crowd weighting -
+        // the player chose this map, and party EXP needs same-map anyway.
+        Integer partyMap = partyTargetMapId();
+        if (partyMap != null) {
+            debugChat("DECIDE: party target -> map " + partyMap);
+            setTrainTarget(partyMap, Math.max(1, MapMobIndex.level(partyMap)));
+            firstTrip = false;
+            enterPhase(chr.getMapId() == partyMap ? Phase.GRIND : Phase.GO_TRAIN);
+            return;
+        }
+        Set<Integer> excluded = crowdExcludedMaps(); // maps on crowd-cooldown (pruned) — steer away from them
+        clearTrainTarget(); // release any stale reservation before choosing (choose() reserves the pick's slot)
+        TrainingMap pick = TrainingMapChooser.choose(chr, homeMapId, excluded, this::debugChat);
+        if (pick == null) {
+            // Nothing reachable with mobs (or all on cooldown) — idle in town and try again later.
+            debugChat("DECIDE: nothing reachable (lv " + chr.getLevel() + ") -> idle in town");
+            enterPhase(Phase.IN_TOWN);
+            return;
+        }
+        // choose() already holds the pick's occupancy slot — record it without re-reserving.
+        currentTrainMapId = pick.mapId();
+        currentMobLevel = Math.max(1, pick.mobLevel());
         debugChat("DECIDE: chose map " + pick.mapId() + " (mob lv " + pick.mobLevel() + ")");
         // First trip only (mainly startup): most bots warp straight to the grind map instead of walking, so
         // the world reads as already-populated. Skipped when the town is observed (don't blink out in front of
@@ -589,12 +712,16 @@ public class TrainingBot extends BotSM {
             teleportedThisEpisode = false;
             GCMovement.setGrinding(chr, true); // engage grind nav guards (no idle-hang on ropes)
             grind.start(chr); // fresh heartbeat, select a spot, and move into it (disperses cohorts even unobserved)
-            grindUntilMs = now() + grindSessionMs();
+            boolean resumingFromBreak = breaks.resuming();
+            grindUntilMs = now() + (resumingFromBreak ? breaks.consumeResumeRemaining() : grindSessionMs());
+            breaks.schedule(grindUntilMs, resumingFromBreak);
             lastExpAccrualMs = now();
             nextBuffMs = now(); // buff up as soon as a player can see it (looks already-buffed on arrival)
             ACTIVE_GRINDERS.add(this);
             lastKnownLevel = chr.getLevel();
-            sayContext("GrindStart", chr, null);
+            if (!resumingFromBreak) {
+                sayContext("GrindStart", chr, null); // a resumed session already spoke BreakOver
+            }
             debugChat("GRIND on map " + chr.getMapId() + " " + grind.spotLabel());
             return;
         }
@@ -625,7 +752,15 @@ public class TrainingBot extends BotSM {
             return; // map too crowded — left for a deeper one (re-DECIDE); skip the grind-timer transition
         }
 
-        if (nowMs >= grindUntilMs) {
+        if (breaks.due() && !recruitingNow()) {
+            // begin() consumes the due-flag either way; false = no safe rest spot -> session continues.
+            if (breaks.begin(chr, grind, Math.max(MID_SESSION_FLOOR_MS, grindUntilMs - nowMs))) {
+                enterPhase(Phase.BREAK_TRAVEL);
+            }
+            return;
+        }
+
+        if (nowMs >= grindUntilMs && !recruitingNow()) { // don't walk off mid-conversation/invite window
             sayContext("MapTransition", chr, null); // "this spot's dead, moving on" — said while still on the map
             leaveGrind();
             enterPhase(Phase.GO_TOWN);
@@ -641,6 +776,9 @@ public class TrainingBot extends BotSM {
     private boolean grindWatchdog(Character chr) {
         if (chr == null || !GCMovement.isMapObserved(chr.getMapId())) {
             return false; // unobserved bots don't fight (abstract EXP) — they can't be physically stuck
+        }
+        if (recruitingNow()) {
+            return false; // mid-conversation / live invite window: never teleport or bail from under the player
         }
         long stuck = grind.msSinceProgress();
         if (stuck < STUCK_TELEPORT_MS) {
@@ -671,14 +809,25 @@ public class TrainingBot extends BotSM {
         return false;
     }
 
-    // Crowd-balance escalation (macro tick, observed only). The grind sub-FSM reports the map saturated when
-    // every reachable spot is claimed and the bot is sharing; if that persists past the dwell, leave for a
+    // Crowd-balance escalation (macro tick; runs unobserved too — see CROWD_BAIL_UNOBSERVED). The grind
+    // sub-FSM reports the map saturated when every reachable spot is claimed and the bot is sharing; if
+    // that persists past the dwell, leave for a
     // deeper, less-crowded map — capacity-aware DECIDE spills us outward. Three guards stop thrash: a persist
     // timer (ignore arrival-race blips), a per-map cooldown (no instant return), and a per-outing hop cap (a
     // fully packed region settles into sharing instead of migrating forever). Returns true if it left the map.
     private boolean grindCrowdBail(Character chr) {
-        if (chr == null || !GCMovement.isMapObserved(chr.getMapId())) {
-            return false; // unobserved bots aren't physically grinding (abstract EXP) — nothing for a player to see
+        if (chr == null) {
+            return false;
+        }
+        Integer partyMap = partyTargetMapId();
+        if (partyMap != null && partyMap == chr.getMapId()) {
+            return false; // never crowd-bail off the party's map - staying with the player wins
+        }
+        if (recruitingNow()) {
+            return false; // mid-recruit: hold the map until the exchange resolves
+        }
+        if (!CROWD_BAIL_UNOBSERVED && !GCMovement.isMapObserved(chr.getMapId())) {
+            return false; // old gate: only relieve crowding a player can actually see
         }
         if (!grind.mapSaturated() || crowdHopsThisEpisode >= MAX_MAP_HOPS_PER_EPISODE) {
             mapSaturatedSinceMs = 0L; // not saturated, or out of hops -> reset the persist timer
@@ -699,6 +848,63 @@ public class TrainingBot extends BotSM {
         leaveGrind();
         enterPhase(Phase.DECIDE);
         return true;
+    }
+
+    // ── Grind breaks (rest flavor — behavior in GrindBreakRoutine; the phases just delegate) ──
+
+    // Dev hook (!bot grindstyle): force this bot's grind archetype for testing (auto = back to the
+    // profile-resolved natural style). A live grind swaps its strategy on the next combat tick; an
+    // idle bot applies it when it next grinds. Returns a status line, or null on an unknown style.
+    public String forceGrindStyle(String styleName) {
+        soloMapling.ArtificialPlayer.BotGrindSystem.GrindStyle wanted = null;
+        if (!styleName.equalsIgnoreCase("auto")) {
+            try {
+                wanted = soloMapling.ArtificialPlayer.BotGrindSystem.GrindStyle.valueOf(styleName.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
+        grind.forceStyle(wanted);
+        nudgeSoon(300); // wake the macro brain so an idle bot re-decides promptly
+        return getChr().getName() + ": grind style -> " + (wanted == null ? "AUTO" : wanted)
+                + (phase == Phase.GRIND ? " (live swap on next combat tick)" : " (applies at next grind)");
+    }
+
+    // Dev hook (!bot breaknow): pull a break to the next grind tick.
+    public boolean forceBreakNow() {
+        if (phase != Phase.GRIND) {
+            return false;
+        }
+        breaks.forceNow();
+        nudgeSoon(300);
+        return true;
+    }
+
+    private void doBreakTravel() {
+        phaseEntered = true; // the routine owns its own setup latches (armed in begin())
+        if (breaks.tickTravel(getChr())) {
+            enterPhase(Phase.BREAK_REST);
+        }
+    }
+
+    private void doBreakRest() {
+        phaseEntered = true;
+        if (breaks.tickRest(getChr())) {
+            enterPhase(Phase.GRIND); // re-enters with the saved remainder; grind.start re-picks a spot
+        }
+    }
+
+    // Break-sign flavor line ("brb" chalkboard). Stays here for the dialogue plumbing (dialoguePath).
+    String breakSignText() {
+        try {
+            String line = BotDialogueHandler.getRandomResolvedLine(dialoguePath, botType, "BreakSign", getChr(), null);
+            if (line != null) {
+                return line;
+            }
+        } catch (Exception e) {
+            // fall through to the default sign
+        }
+        return "brb";
     }
 
     // Is there a hostile mob the bot could actually walk/jump to from where it stands? Reachability-filtered
@@ -757,6 +963,7 @@ public class TrainingBot extends BotSM {
         ACTIVE_GRINDERS.remove(this);
         grind.release(getChr()); // drop the spot claim + reset combat state
         clearTrainTarget(); // release this map's occupancy slot
+        GCMovement.setRestHold(getChr(), false); // belt-and-braces: never leave a rope rest hold set on bail
         GCMovement.setGrinding(getChr(), false); // back to normal nav for travel
         GCMovement.stop(getChr()); // clear the roam target before travelling
     }
@@ -796,7 +1003,7 @@ public class TrainingBot extends BotSM {
     // Fires a context-token dialogue node, but only when a real player can see it (observed map), and
     // off the macro thread so the line's hold never blocks the tick. Biased toward plain lines over
     // {TOKEN} ones (CONTEXT_LINE_CHANCE). player may be null (self-only nodes).
-    private void sayContext(String node, Character chr, Character player) {
+    void sayContext(String node, Character chr, Character player) { // package-visible: GrindBreakRoutine speaks through the bot
         if (chr == null || !GCMovement.isMapObserved(chr.getMapId())) {
             return;
         }
@@ -804,12 +1011,152 @@ public class TrainingBot extends BotSM {
                 getDialogueHandler().executeBotContextDialogue(node, this, player, BotDialogueHandler.CONTEXT_LINE_CHANCE));
     }
 
+    // ── Party recruiting & interactive menu ─────────────────────────────────
+
+    // The map a partied bot should train on: the first real (non-bot, online) party member's map if
+    // it's grindable; else hold the current map if that's grindable (the player's in a town buying
+    // pots - don't wander off); else null (normal weighted pick).
+    private Integer partyTargetMapId() {
+        Party party = getChr().getParty();
+        if (party == null) {
+            return null;
+        }
+        Character member = firstRealPartyMember(party);
+        if (member == null) {
+            return null;
+        }
+        int memberMap = member.getMapId();
+        if (MapMobIndex.level(memberMap) >= 0) {
+            return memberMap;
+        }
+        if (MapMobIndex.level(getChr().getMapId()) >= 0) {
+            return getChr().getMapId();
+        }
+        return null;
+    }
+
+    private Character firstRealPartyMember(Party party) {
+        for (PartyCharacter pc : party.getMembers()) {
+            Character p = pc == null ? null : pc.getPlayer();
+            if (p != null && !isBot(p) && p.getMap() != null) {
+                return p;
+            }
+        }
+        return null;
+    }
+
+    // Answers any pending party invite every tick: accept only the player the dialogue armed
+    // (rollPartyAsk), politely reject everything else so the first-wins queue never rots.
+    private void pollRecruitInvite() {
+        Character chr = getChr();
+        if (!BotPartyQueue.getInstance().hasPendingInvite(chr)) {
+            return;
+        }
+        int recruiterId = BotRecruitManager.armedInviterId(chr.getId()); // read BEFORE poll - JOINED clears it
+        if (BotRecruitManager.pollInvites(chr) == BotRecruitManager.InvitePoll.JOINED) {
+            Character recruiter = chr.getClient().getChannelServer()
+                    .getPlayerStorage().getCharacterById(recruiterId);
+            sayRecruit("PartyJoined", recruiter);
+            // No re-typing: a partied TrainingBot keeps grinding; DECIDE is now party-aware.
+        }
+    }
+
+    private void onSoloMenuSelect(int idx, Character player) {
+        switch (idx) {
+            case 0 -> { // How's the training?
+                sayRecruit("TrainingTalk", player);
+                soloMenu.show(player);
+            }
+            case 1 -> optPartyAsk(player);
+            default -> { // Goodbye
+                sayRecruit("Goodbye", player);
+                soloMenu.close(player);
+            }
+        }
+    }
+
+    private void onPartyMenuSelect(int idx, Character player) {
+        switch (idx) {
+            case 0 -> { // How's the training?
+                sayRecruit("TrainingTalk", player);
+                partyMenu.show(player);
+            }
+            case 1 -> optFollowMe(player);
+            default -> { // Goodbye
+                sayRecruit("Goodbye", player);
+                partyMenu.close(player);
+            }
+        }
+    }
+
+    private void optPartyAsk(Character player) {
+        Character chr = getChr();
+        if (chr.getParty() != null) { // partied since the solo menu was shown
+            sayRecruit(inSameParty(player) ? "AlreadyPartied" : "PartyDecline", player);
+            soloMenu.close(player);
+            return;
+        }
+        BotRecruitManager.RecruitAnswer ans = BotRecruitManager.rollPartyAsk(
+                chr, player, BotRecruitManager.TRAINING_ACCEPT_CHANCE, false);
+        if (ans == BotRecruitManager.RecruitAnswer.ACCEPTED) {
+            sayRecruit("PartyAccept", player);
+            soloMenu.close(player); // pollRecruitInvite now waits for this player's invite
+        } else {
+            sayRecruit("PartyDecline", player);
+            soloMenu.show(player);
+        }
+    }
+
+    // Follow me! -> become this player's FollowerBot (same-party gated; the shower only picked
+    // the party menu, the ASKER may still be a stranger).
+    private void optFollowMe(Character player) {
+        Character chr = getChr();
+        if (!inSameParty(player)) {
+            sayRecruit("PartyFirst", player);
+            partyMenu.close(player);
+            return;
+        }
+        if (BotRecruitManager.activeFollowerCount() >= BotRecruitManager.FOLLOWER_CAP) {
+            sayRecruit("PartyDecline", player);
+            partyMenu.close(player);
+            return;
+        }
+        sayRecruit("FollowAccept", player);
+        partyMenu.close(player);
+        BotRecruitManager.setPendingLeader(chr.getId(), player.getId());
+        // stopScheduledTask (via convert) releases the grind: spot claim, occupancy slot,
+        // combat/buff drivers, GC movement lock.
+        BotTypeManager.convertBotType(chr, BotTypeManager.BotType.FOLLOWER_BOT);
+    }
+
+    private boolean inSameParty(Character player) {
+        return getChr().getParty() != null && player.getParty() != null
+                && player.getParty().getId() == getChr().getParty().getId();
+    }
+
+    // Direct menu reply to the asking player (they're on the map by definition - no observation
+    // gate, no context-chance bias like sayContext).
+    private void sayRecruit(String node, Character player) {
+        Character chr = getChr();
+        if (chr == null || chr.getMap() == null) {
+            return;
+        }
+        try {
+            String line = BotDialogueHandler.getRandomResolvedLine(dialoguePath, botType, node, chr, player);
+            if (line != null) {
+                BotSpeak(chr, line);
+            }
+        } catch (Exception e) {
+            // a missing dialogue node must never break the tick
+        }
+    }
+
     // Debug narration (OFF by default). When enabled, the bot announces what it's doing — every phase change
     // and the notable fail/repair branches — as normal chat (speech bubble + chat box) so you can watch the
     // macro FSM live. The switch is a PLAIN LOCAL below, deliberately NOT static/final, so you can flip it to
     // true and HotSwap just this one method while the server is running (no restart; a static/final would be
     // constant-folded at the call sites or keep its old value across a reload).
-    private void debugChat(String message) {
+    void debugChat(String message) { // package-visible: GrindBreakRoutine narrates through the bot
         boolean debugChatEnabled = false; // <-- flip to true + HotSwap this method to turn narration on
         if (!debugChatEnabled) {
             return;
@@ -831,6 +1178,7 @@ public class TrainingBot extends BotSM {
         Character chr = getChr();
         long exp = (long) chr.getExp() + gain;
         int level = chr.getLevel();
+        int startLevel = level;
         while (level < LEVEL_CAP) {
             int need = ExpTable.getExpNeededForLevel(level);
             if (need <= 0 || exp < need) {
@@ -841,109 +1189,17 @@ public class TrainingBot extends BotSM {
         }
         chr.setLevel(level);
         chr.setExp((int) Math.min(exp, Integer.MAX_VALUE));
+        if (level > startLevel) {
+            // Announce the bot's own level-up so nearby bots can congratulate it (same event path as
+            // real players). Once, at the final level. The abstract EXP loop can span several levels
+            // when the bot ticks slowly while unobserved - we still fire a single event.
+            EventBus.getInstance().publish(EventFactory.createLevelUpEvent(chr));
+        }
     }
 
     // ── Map selection (level-scaled hops + weighted, occupancy-balanced, chill-aware pick) ──
 
-    // Wander radius (hops from town) for a level, interpolating HOPS_BY_LEVEL between its breakpoints.
-    // ANYWHERE_LEVEL and up opens the radius to MAX_HOPS (the whole connected landmass). Low bots hug
-    // town, 30+ bots range widely (Victoria's good maps are far out), 70+ can go essentially anywhere.
-    private static int hopsForLevel(int level) {
-        if (level >= ANYWHERE_LEVEL) {
-            return MAX_HOPS;
-        }
-        int[][] bp = HOPS_BY_LEVEL;
-        if (level <= bp[0][0]) {
-            return bp[0][1];
-        }
-        for (int i = 1; i < bp.length; i++) {
-            if (level <= bp[i][0]) {
-                int loL = bp[i - 1][0], hiL = bp[i][0];
-                int loH = bp[i - 1][1], hiH = bp[i][1];
-                return (int) Math.round(loH + (hiH - loH) * (double) (level - loL) / (hiL - loL));
-            }
-        }
-        return MAX_HOPS; // above the top breakpoint but below ANYWHERE_LEVEL — safety only
-    }
-
-    // Weighted random over eligible maps: level-appropriate maps full weight, easier maps a reduced chance
-    // (so higher bots sometimes "chill" at low maps), biased by distance (low bots near town, high bots
-    // further out), and CAPACITY-AWARE — a map at/over its carrying capacity is hard-zeroed so it drops out
-    // of contention and selection spills to deeper, less-crowded maps; the rest are weighted by remaining
-    // headroom. If every reachable map is full, falls back to the old soft divisor so the bot still goes
-    // somewhere (and shares) rather than idling.
-    private TrainingMap weightedPick(List<TrainingMap> maps, int level, int reach) {
-        double[] weights = new double[maps.size()];
-        double total = 0;
-        for (int i = 0; i < maps.size(); i++) {
-            TrainingMap m = maps.get(i);
-            int cap = capacityFor(m.mapId());
-            int n = botsOnMap(m.mapId());
-            double base = levelFitWeight(level, m.mobLevel()) * distanceWeight(level, m.hops(), reach);
-            double w = (n >= cap) ? 0.0 : base * ((cap - n) / (double) cap); // hard cap + headroom weight
-            weights[i] = w;
-            total += w;
-        }
-        if (total <= 0) {
-            // Every reachable map is at capacity — re-weight with the soft divisor so the surplus still
-            // spreads onto the least-crowded map instead of idling in town.
-            for (int i = 0; i < maps.size(); i++) {
-                TrainingMap m = maps.get(i);
-                double w = levelFitWeight(level, m.mobLevel())
-                        * distanceWeight(level, m.hops(), reach)
-                        / (1.0 + botsOnMap(m.mapId()));
-                weights[i] = w;
-                total += w;
-            }
-        }
-        if (total <= 0) {
-            return maps.get(rng.nextInt(maps.size()));
-        }
-        double r = rng.nextDouble() * total;
-        for (int i = 0; i < maps.size(); i++) {
-            r -= weights[i];
-            if (r <= 0) {
-                return maps.get(i);
-            }
-        }
-        return maps.get(maps.size() - 1);
-    }
-
-    // Full weight within the comfort band (>= level - LEVEL_BAND); a small chance for easier maps.
-    private static double levelFitWeight(int level, int mobLevel) {
-        return (mobLevel >= level - LEVEL_BAND) ? 1.0 : LOW_MAP_WEIGHT;
-    }
-
-    // Distance preference, ramped by level. reach = the bot's hop radius (hopsForLevel); hops = this
-    // map's BFS distance from the spawn town (1 = adjacent). A fresh bot favors close maps; the
-    // preference slides toward the far edge of its reach as it approaches VENTURE_FULL_LEVEL. With only
-    // adjacent maps reachable there's nothing to bias, so weight is flat.
-    private static double distanceWeight(int level, int hops, int reach) {
-        if (reach <= 1) {
-            return 1.0;
-        }
-        double venture = Math.min(1.0, level / (double) VENTURE_FULL_LEVEL);
-        double hopFrac = (hops - 1) / (double) (reach - 1); // 0 = nearest, 1 = edge of reach
-        hopFrac = Math.max(0.0, Math.min(1.0, hopFrac));
-        double pref = (1.0 - venture) * (1.0 - hopFrac) + venture * hopFrac;
-        return DISTANCE_WEIGHT_BASE + pref;
-    }
-
-    private static int botsOnMap(int mapId) {
-        AtomicInteger c = BOTS_PER_MAP.get(mapId);
-        return c == null ? 0 : Math.max(0, c.get());
-    }
-
-    // A map's bot carrying capacity from its spawn-point budget. MapMobIndex.mobCount is the WZ `life`
-    // type-m count (each a respawning spawn point), read once and cached — no live map load, no nav bake,
-    // and DECIDE already touches MapMobIndex per candidate so this is effectively free. Floored at 1 so a
-    // sparse map still hosts one grinder. Tuned (SPAWN_POINTS_PER_BOT) so "at capacity" ≈ "all spots claimed".
-    private static int capacityFor(int mapId) {
-        int spawns = MapMobIndex.mobCount(mapId);
-        return Math.max(1, (int) Math.round(spawns / (double) SPAWN_POINTS_PER_BOT));
-    }
-
-    // Maps recently left because they were saturated, with expired entries pruned. Fed to findTrainingMaps
+    // Maps recently left because they were saturated, with expired entries pruned. Fed to the chooser
     // so a just-left packed map isn't immediately re-picked (map-scale analogue of the spot exclude cooldown).
     private Set<Integer> crowdExcludedMaps() {
         long t = now();
@@ -951,19 +1207,18 @@ public class TrainingBot extends BotSM {
         return new HashSet<>(mapCrowdCooldown.keySet());
     }
 
+    // Record a train target + reserve its world-wide occupancy slot (station-here / party paths; the
+    // normal DECIDE path gets its slot from TrainingMapChooser.choose and records the fields directly).
     private void setTrainTarget(int mapId, int mobLevel) {
         clearTrainTarget();
         currentTrainMapId = mapId;
         currentMobLevel = mobLevel;
-        BOTS_PER_MAP.computeIfAbsent(mapId, k -> new AtomicInteger()).incrementAndGet();
+        TrainingMapChooser.reserve(mapId);
     }
 
     private void clearTrainTarget() {
         if (currentTrainMapId >= 0) {
-            AtomicInteger c = BOTS_PER_MAP.get(currentTrainMapId);
-            if (c != null) {
-                c.decrementAndGet();
-            }
+            TrainingMapChooser.release(currentTrainMapId);
         }
         currentTrainMapId = -1;
         currentMobLevel = 0;
@@ -1019,7 +1274,7 @@ public class TrainingBot extends BotSM {
         }
 
         int total = 0, full = 0, halo = 0, dwell = 0, coarse = 0;
-        int pInit = 0, pTown = 0, pShop = 0, pDecide = 0, pTrain = 0, pGrind = 0, pGoTown = 0;
+        int pInit = 0, pTown = 0, pShop = 0, pDecide = 0, pTrain = 0, pGrind = 0, pGoTown = 0, pBreak = 0;
         Map<Integer, Integer> trainByMap = new TreeMap<>();
         for (BotSM b : CharacterStorage.getAllBots().values()) {
             if (!(b instanceof TrainingBot tb)) {
@@ -1046,14 +1301,15 @@ public class TrainingBot extends BotSM {
                 case GO_TRAIN -> pTrain++;
                 case GRIND -> pGrind++;
                 case GO_TOWN -> pGoTown++;
+                case BREAK_TRAVEL, BREAK_REST -> pBreak++;
             }
         }
 
         out.add("=== TrainingBot LOD overview ===");
         out.add(String.format("training bots: %d   tiers: full=%d halo=%d dwell=%d coarse=%d",
                 total, full, halo, dwell, coarse));
-        out.add(String.format("phases: grind=%d goTrain=%d goTown=%d inTown=%d shop=%d decide=%d init=%d",
-                pGrind, pTrain, pGoTown, pTown, pShop, pDecide, pInit));
+        out.add(String.format("phases: grind=%d goTrain=%d goTown=%d inTown=%d shop=%d decide=%d init=%d break=%d",
+                pGrind, pTrain, pGoTown, pTown, pShop, pDecide, pInit, pBreak));
         out.add(String.format("-- FULL maps (real player present): %d --", GCMovement.observedFullMaps().size()));
         appendMapLines(out, GCMovement.observedFullMaps(), mapsById, trainByMap);
         out.add(String.format("-- HALO maps (portal-adjacent): %d --", GCMovement.observedHaloMaps().size()));
@@ -1081,11 +1337,15 @@ public class TrainingBot extends BotSM {
         ACTIVE_GRINDERS.remove(this);
         Character chr = getChr();
         if (chr != null) {
+            if (chr.getChair() > 0) {
+                botCancelChair(chr); // mid-break conversion: don't leave the new type glued to a chair
+            }
             grind.release(chr);
             clearTrainTarget(); // release this map's occupancy slot
             BotAttackDriver.clearBot(chr.getId());
             BotBuffDriver.clearBot(chr.getId());
             BotWanderSystem.stop(chr); // end any shop-dwell flavor wander
+            TownLoiter.stop(chr); // free any town-loiter ledge claim + fidget before releasing movement
             GCMovement.disable(chr); // releases the shared movement lock the recorded engine needs
         }
         super.stopScheduledTask();

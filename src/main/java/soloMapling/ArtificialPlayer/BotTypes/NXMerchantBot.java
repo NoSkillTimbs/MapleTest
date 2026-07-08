@@ -7,6 +7,7 @@ import soloMapling.ArtificialPlayer.BotMessagingSystem.ChatMessage;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeSM;
+import soloMapling.server.BotTiming;
 
 import java.util.Collections;
 import java.util.List;
@@ -16,15 +17,13 @@ import static soloMapling.ArtificialPlayer.BotCommandsPack.MapleMessengerCommand
 import static soloMapling.ArtificialPlayer.BotCommandsPack.MapleMessengerCommands.botSendChatFull;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.MapleMessengerCommands.isMessengerInviteAccepted;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.MapleMessengerCommands.sendMessengerInviteComplete;
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
-import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.nudgeAwayFromOverlap;
 import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.BUYING_MERCHANT_BOT;
 import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.SELLING_MERCHANT_BOT;
 import static soloMapling.ArtificialPlayer.BotTypeManager.convertBotType;
 import static soloMapling.BotLogger.log;
-import static soloMapling.Environment.EnvironmentManager.botMoveToPlatformAnyUnoccupiedSpot;
-import static soloMapling.Environment.EnvironmentManager.getCurrentPlatform;
-import static soloMapling.Environment.EnvironmentManager.getMainPlatformIds;
+import static soloMapling.Environment.PlatformPlacement.botMoveToPlatformAnyUnoccupiedSpotDynamic;
+import static soloMapling.Environment.PlatformPlacement.getCurrentPlatform;
+import static soloMapling.Environment.PlatformPlacement.getMainPlatformIds;
 import static soloMapling.FreeMarket.ArtificialShopGenerator.generateItem;
 import static soloMapling.server.NXCodeManager.createCompleteNXCode;
 import static soloMapling.server.NXCodeManager.generateGiftCardCode;
@@ -101,8 +100,8 @@ public class NXMerchantBot extends BotSM {
             botSendChatFull(getChr(), nxCode, 7000);
             botSendChatFull(getChr(), "enjoy it!", 2000);
 
-            sleepAmountSeconds(2000);
-            botLeaveMessenger(getChr());
+            BotTiming.after(2000, () -> botLeaveMessenger(getChr()));
+            waitFor(2500); // hold CONVERT_BACK until the messenger leave lands
         } else {
             SocialCommands.BotSpeak(getChr(), "You didn't accept the messenger invite... too bad noob.");
         }
@@ -111,14 +110,14 @@ public class NXMerchantBot extends BotSM {
         resetLastTradedCharacter();
     }
 
+    // Dynamic movement lands on the exact picked pixel, so the old nudgeAwayFromOverlap
+    // band-aid (recorded paths piling bots onto fixed endpoints) is no longer needed here.
     private boolean tryPlatformShuffle() {
         if (rollChanceInverse(15)) {
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getCurrentPlatform(getChr()));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getCurrentPlatform(getChr()));
             return true;
         } else if (rollChanceInverse(40)) {
-            botMoveToPlatformAnyUnoccupiedSpot(getChr(), getRandomElement(List.of("m1", "m5")));
-            if (rollChanceInverse(2)) nudgeAwayFromOverlap(getChr());
+            botMoveToPlatformAnyUnoccupiedSpotDynamic(getChr(), getRandomElement(List.of("m1", "m5")));
             return true;
         }
         return false;

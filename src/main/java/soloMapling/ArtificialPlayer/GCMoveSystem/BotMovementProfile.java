@@ -1,8 +1,11 @@
 package soloMapling.ArtificialPlayer.GCMoveSystem;
 
 import client.Character;
+import client.Job;
 import client.inventory.InventoryType;
 import client.inventory.Item;
+import net.server.world.Party;
+import net.server.world.PartyCharacter;
 import server.ItemInformationProvider;
 import server.maps.FieldLimit;
 import server.maps.MapleMap;
@@ -24,6 +27,16 @@ record BotMovementProfile(int totalSpeedStat, int totalJumpStat, boolean snowSho
     static final int MAX_EFFECTIVE_SPEED_STAT = 200;
     static final int MAX_EFFECTIVE_JUMP_STAT = 123;
     static final BotMovementProfile BASE = new BotMovementProfile(BASE_TOTAL_STAT, BASE_TOTAL_STAT);
+
+    // Class-aware "effective Haste". Bots' Haste buff is cosmetic (no stat), so thief speed/jump is
+    // modelled here: haste-thieves ramp to the cap early, and a bot sharing a party with a high-level
+    // haste-thief inherits max speed. See Documents/Movement - 2026-07-06 Class-Aware Speed and Jump.
+    static final int HASTE_MAX_SPEED = 155;                    // our effective speed cap (≈ real 140% held-down feel)
+    static final int HASTE_MAX_JUMP = MAX_EFFECTIVE_JUMP_STAT; // 123
+    static final int YOUNG_THIEF_SPEED = 150;                  // 2nd-job thief (30-54): hasted, not yet capped
+    static final int YOUNG_THIEF_JUMP = 115;
+    static final int HASTE_SELF_MAX_LEVEL = 55;                // haste-thief at/above this = max speed+jump
+    static final int PARTY_HASTE_THIEF_LEVEL = 60;             // a haste-thief party member at/above this grants party Haste
 
     BotMovementProfile {
         totalSpeedStat = bucketStat(totalSpeedStat);
@@ -47,14 +60,58 @@ record BotMovementProfile(int totalSpeedStat, int totalJumpStat, boolean snowSho
         if (hasForcedBaseMovementStats(character)) {
             return BASE;
         }
-        // SoloMapling: scale the walk-speed baseline by bot level so higher-level bots roam faster.
-        // The level value replaces the flat 100 baseline; any equip/buff speed
-        // (getTotalMoveSpeedStat - 100) still stacks on top. Bucketed to the nearest 5 by the
-        // canonical constructor, so the level tiers below land on exact graph buckets.
-        int speedBonus = character.getTotalMoveSpeedStat() - BASE_TOTAL_STAT;
-        int totalSpeed = levelSpeedStat(character.getLevel()) + speedBonus;
-        return new BotMovementProfile(totalSpeed, character.getTotalJumpStat(),
-                wearsSnowShoes(character));
+        // SoloMapling: scale the walk-speed / jump baseline by bot level AND class so higher-level and
+        // Haste-class (thief) bots roam faster and jump higher. The baseline replaces the flat 100; any
+        // equip/real-buff speed/jump (getTotal*Stat - 100) still stacks on top. Bucketed to the nearest 5
+        // by the canonical constructor, so the tiers below land on exact graph buckets.
+        int level = character.getLevel();
+        boolean hasteThief = hasHasteSkill(character.getJob());
+
+        int speedBaseline;
+        int jumpBaseline;
+        if (hasteThief && level >= HASTE_SELF_MAX_LEVEL) {
+            speedBaseline = HASTE_MAX_SPEED;   // capped thief: full effective Haste
+            jumpBaseline = HASTE_MAX_JUMP;
+        } else if (hasteThief) {
+            speedBaseline = YOUNG_THIEF_SPEED; // 2nd-job thief (30-54): Haste in effect, ramping to cap
+            jumpBaseline = YOUNG_THIEF_JUMP;
+        } else {
+            speedBaseline = levelSpeedStat(level);
+            jumpBaseline = levelJumpStat(level);
+        }
+        // Party Haste (immersion): a bot partied with a high-level haste-thief inherits max SPEED (not
+        // jump). Pure roster logic — the thief never travels to cast it. max() so a young thief still gets 155.
+        if (partyGrantsHaste(character)) {
+            speedBaseline = Math.max(speedBaseline, HASTE_MAX_SPEED);
+        }
+
+        int totalSpeed = speedBaseline + (character.getTotalMoveSpeedStat() - BASE_TOTAL_STAT);
+        int totalJump = jumpBaseline + (character.getTotalJumpStat() - BASE_TOTAL_STAT);
+        return new BotMovementProfile(totalSpeed, totalJump, wearsSnowShoes(character));
+    }
+
+    // Haste-thief lineage: Assassin→Hermit→Night Lord and Bandit→Chief Bandit→Shadower all learn Haste at
+    // 2nd job (level 30+). isA covers the whole lineage and excludes first-job Rogue (no Haste).
+    private static boolean hasHasteSkill(Job job) {
+        return job != null && (job.isA(Job.ASSASSIN) || job.isA(Job.BANDIT));
+    }
+
+    // True if the bot shares an active party with an online, level-PARTY_HASTE_THIEF_LEVEL+ haste-thief —
+    // the bot is treated as receiving that thief's party Haste. Roster-only; no map/proximity requirement.
+    private static boolean partyGrantsHaste(Character character) {
+        Party party = character.getParty();
+        if (party == null) {
+            return false;
+        }
+        for (PartyCharacter member : party.getMembers()) {
+            if (member == null || member.getId() == character.getId() || !member.isOnline()) {
+                continue;
+            }
+            if (member.getLevel() >= PARTY_HASTE_THIEF_LEVEL && hasHasteSkill(member.getJob())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Level -> walk-speed % baseline. Values are multiples of STAT_BUCKET_SIZE so they land exactly
@@ -76,6 +133,28 @@ record BotMovementProfile(int totalSpeedStat, int totalJumpStat, boolean snowSho
             return 145;
         }
         return 155;
+    }
+
+    // Level -> jump % baseline (non-thief). Parallels levelSpeedStat within the 100..123 jump range so
+    // higher-level bots also leap higher; ≤9 stays 100 so low-level bots are unchanged. Multiples of
+    // STAT_BUCKET_SIZE (except the 123 cap) so they land on exact graph buckets.
+    private static int levelJumpStat(int level) {
+        if (level <= 9) {
+            return 100;
+        }
+        if (level <= 29) {
+            return 105;
+        }
+        if (level <= 50) {
+            return 110;
+        }
+        if (level <= 69) {
+            return 115;
+        }
+        if (level <= 100) {
+            return 120;
+        }
+        return HASTE_MAX_JUMP; // 123
     }
 
     /* Snowshoes carry WZ info/fs (e.g. 10) on the worn shoe and cancel field

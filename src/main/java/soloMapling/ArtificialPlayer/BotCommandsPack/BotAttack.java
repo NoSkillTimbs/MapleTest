@@ -1,6 +1,8 @@
 package soloMapling.ArtificialPlayer.BotCommandsPack;
 
 import client.Character;
+import client.Skill;
+import client.SkillFactory;
 import client.inventory.Item;
 import client.inventory.InventoryType;
 import client.inventory.WeaponType;
@@ -69,6 +71,61 @@ public final class BotAttack {
                 ),
                 /* repeatToSource */ false
         );
+    }
+
+    /**
+     * Broadcast a cosmetic SKILL swing at the air - the character plays the skill's attack pose
+     * (Brandish, Savage Blow, etc.) with no targets and no damage. Same packet the real melee path
+     * builds (BotAttackEffects.meleeStrike) but with an empty target map, so nothing is hit. The
+     * body-action id comes from the skill's own keyframe (BotAttackData.actionFor), falling back to
+     * the weapon default. Pure visual. For magic-class skills use {@link #magicSwing} instead.
+     */
+    public static void skillSwing(Character chr, int skillId) {
+        if (chr == null || chr.getMap() == null) return;
+        if (skillId <= 0) { basicSwing(chr); return; }
+
+        int facingMask = facingLeft(chr) ? BotAttackData.FACING_LEFT_MASK : BotAttackData.FACING_RIGHT_MASK;
+        WeaponType weaponType = resolveEquippedWeaponType(chr);
+        int bodyActionId = BotAttackData.actionFor(skillId, weaponType);
+
+        Map<Integer, AttackTarget> emptyTargets = Collections.emptyMap();
+        chr.getMap().broadcastMessage(
+                chr,
+                PacketCreator.closeRangeAttack(chr, skillId, resolveSkillLevel(skillId), facingMask,
+                        /* numAttackedAndDamage */ 0, emptyTargets, BotAttackData.DEFAULT_ATTACK_SPEED,
+                        bodyActionId, /* display */ 0),
+                false
+        );
+    }
+
+    /**
+     * Broadcast a cosmetic MAGIC skill cast at the air - the character plays the spell cast with no
+     * targets and no damage. Carries the charge int (BotAttackData.magicChargeFor); omitting it on a
+     * keydown CHARGE skill (Big Bang) over-reads the packet and CRASHES viewers, so it must be sent.
+     * Pure visual.
+     */
+    public static void magicSwing(Character chr, int skillId) {
+        if (chr == null || chr.getMap() == null || skillId <= 0) return;
+
+        int facingMask = facingLeft(chr) ? BotAttackData.FACING_LEFT_MASK : BotAttackData.FACING_RIGHT_MASK;
+        WeaponType weaponType = resolveEquippedWeaponType(chr);
+        int bodyActionId = BotAttackData.actionFor(skillId, weaponType);
+
+        Map<Integer, AttackTarget> emptyTargets = Collections.emptyMap();
+        chr.getMap().broadcastMessage(
+                chr,
+                PacketCreator.magicAttack(chr, skillId, resolveSkillLevel(skillId), facingMask,
+                        /* numAttackedAndDamage */ 0, emptyTargets, BotAttackData.magicChargeFor(skillId),
+                        BotAttackData.DEFAULT_ATTACK_SPEED, bodyActionId, /* display */ 0),
+                false
+        );
+    }
+
+    // The skill's max level, so the fanciest form of the effect renders. Bots don't learn skills, so
+    // there's no real level to read; 1 is a safe fallback if the skill can't be resolved.
+    private static int resolveSkillLevel(int skillId) {
+        Skill skill = SkillFactory.getSkill(skillId);
+        return skill != null ? skill.getMaxLevel() : 1;
     }
 
     /** The bot's currently equipped main-hand weapon class, or null if unarmed. */

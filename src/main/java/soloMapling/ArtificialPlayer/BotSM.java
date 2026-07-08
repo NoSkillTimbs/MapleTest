@@ -4,6 +4,7 @@ import client.Character;
 import server.Trade;
 import server.maps.MapObject;
 import server.maps.MapleMap;
+import soloMapling.ArtificialPlayer.BotAttackSystem.ThrowingStarSelector;
 import soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.ChatMessage;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
@@ -12,20 +13,18 @@ import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeInventory;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeLogic;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeSM;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeWants;
+import soloMapling.ArtificialPlayer.GCMoveSystem.LodCounts;
 import soloMapling.server.EventMessageSystem.BotEventBuffer;
 import soloMapling.server.EventMessageSystem.EventBus;
 import soloMapling.server.EventMessageSystem.EventSubscriber;
 import soloMapling.server.EventMessageSystem.GameEvent;
 
+import soloMapling.server.BotTickService;
+
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.botClearChalkboard;
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
 import static soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage.botLoggedIn;
 import static soloMapling.ArtificialPlayer.BotHelpers.isBot;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.BotIdleStandingUpdate;
@@ -48,6 +47,9 @@ public abstract class BotSM implements EventSubscriber {
     }
 
     private final Character character; // Reference to the existing Character object
+    // Level-appropriate throwing star chosen once at creation for claw-thief bots (0 = not a claw
+    // thrower). Cosmetic packet projectile only; lives here so we never touch the Cosmic Character.
+    private final int chosenStarId;
     private boolean running;
     protected BotState state;
     private BotDebugHandler debugger;
@@ -67,17 +69,45 @@ public abstract class BotSM implements EventSubscriber {
 
     private static MessageQueue messageQueue = MessageQueue.getInstance();
 
-    private ScheduledExecutorService scheduler;
-    private ScheduledFuture<?> scheduledTask;
-
     // One shared tick body for every (re)schedule path - start / priority change / nudge.
     private final Runnable tickRunnable = () -> {
         try {
+            if (isWaiting()) {
+                return; // FSM-requested pause (waitFor) - skip the tick entirely
+            }
+            soloMapling.server.BotPerfStats.MACRO_TICKS.increment();
             updateState();
         } catch (Exception e) {
             e.printStackTrace(); // Handle exceptions to ensure the scheduler doesn't stop unexpectedly
         }
     };
+
+    // ── Waiting without sleeping (Fable Phase 4) ─────────────────────────────
+    // FSM code that needs a pause calls waitFor(ms) and RETURNS from its tick
+    // instead of Thread.sleep. The tick gate above then skips updateState until
+    // the wait passes - no thread is held anywhere, and the FSM resumes in
+    // whatever state was set before returning.
+    //
+    //   old:  doThing(); blockingSleep(3000); doNext();
+    //   new:  doThing(); waitFor(3000); setXxxState(NEXT); return;  // next tick runs doNext
+    //
+    // The wait also holds through nudges (a player walking in doesn't cut a pause
+    // short - that's what the pause means), so keep waits short for anything that
+    // should feel reactive.
+    private volatile long waitUntilMs = 0;
+
+    // public so collaborators driven from the tick (BotTradeSM) can pace the bot too
+    public void waitFor(long ms) {
+        waitUntilMs = System.currentTimeMillis() + ms;
+    }
+
+    protected void waitForRandom(long loMs, long hiMs) {
+        waitFor(loMs + random.nextInt((int) Math.max(1, hiMs - loMs + 1)));
+    }
+
+    protected boolean isWaiting() {
+        return System.currentTimeMillis() < waitUntilMs;
+    }
 
     // Map-entry responsiveness (see BotMapEntryResponder): timestamp of the last nudgeSoon, used to
     // debounce repeated entries so the next tick isn't perpetually reset (which would starve the FSM).
@@ -105,6 +135,9 @@ public abstract class BotSM implements EventSubscriber {
         this.debugger = new BotDebugHandler(chr);
         this.dialogueHandler = new BotDialogueHandler(chr);
         this.eventBuffer = new BotEventBuffer(100);
+        // Roll the throwing star now: the Character is fully decorated by the time a BotSM is built
+        // (createBot decorates, setAndStartBots then constructs us), so weapon/level/job are set.
+        this.chosenStarId = ThrowingStarSelector.selectFor(chr);
         debugprint(("Bot Initialized: " + this.character.getName() + ", " + this.character.getId()));
     }
 
@@ -122,6 +155,11 @@ public abstract class BotSM implements EventSubscriber {
 
     public client.Character getChr() {
         return this.character;
+    }
+
+    // The throwing star this claw-thief bot chose at creation, or 0 if it isn't a claw thrower.
+    public int getChosenStarId() {
+        return this.chosenStarId;
     }
 
     public String getBotType() {
@@ -169,9 +207,14 @@ public abstract class BotSM implements EventSubscriber {
         return getRunning() && botLoggedIn(this.getChr().getId());
     }
 
-    // todo update to maybe just check all real players and check if they on map
-    //  , instead of checking all chars on map
+    // "Is a real player on my map?" - answered by the LOD observer tracker in O(1)
+    // (Fable Phase 1, F3) instead of scanning the map's character list per tick.
+    // Falls back to the scan only when the tracker poll isn't running yet
+    // (no GC-movement bot enabled, e.g. bare dev spawns).
     public boolean checkMainPlayersOnMap() {
+        if (LodCounts.trackerRunning()) {
+            return LodCounts.isMapFull(character.getMapId());
+        }
         Collection<Character> charsOnMap = character.getMap().getCharacters();
         for (Character chrs : charsOnMap) {
             if (!isBot(chrs)) {
@@ -227,7 +270,7 @@ public abstract class BotSM implements EventSubscriber {
                 if (botTradeSM.isTradeComplete() && !tradeHandler.verifyTradePartner() ||
                         !botTradeSM.isTradeComplete() && !tradeHandler.verifyTradePartner() && !botTradeSM.isOfferAccepted()) {
                     cleanupTradeState();
-                    sleepAmountSeconds(2000);
+                    waitFor(2000); // settle beat after the trade closes (gated, no thread held)
                     setState(BotState.RUNNING);
                     break;
                 }
@@ -254,33 +297,20 @@ public abstract class BotSM implements EventSubscriber {
         startScheduledTask(0);
     }
 
+    // Fable Phase 2: macro ticks ride the shared BotTickService wheel - no per-bot
+    // scheduler thread. Registration is keep-if-present (the old code left a live
+    // task alone), the period is measured from tick completion (no pileups), and
+    // ticks never overlap for one bot (the wheel's per-entry guard).
     public synchronized void startScheduledTask(long initialDelayMs) {
-        if (scheduler == null || scheduler.isShutdown() || scheduler.isTerminated()) {
-            scheduler = Executors.newScheduledThreadPool(1);
-        }
-        if (scheduledTask == null || scheduledTask.isCancelled() || scheduler.isShutdown() || scheduler.isTerminated()) {
-            // Using FixedDelay instead of FixedRate - // SM NOTE this should prevent "piling up", and only allow 1 at a time
-            scheduledTask = scheduler.scheduleWithFixedDelay(
-                    tickRunnable, initialDelayMs, getRandomDelay(), TimeUnit.MILLISECONDS);
-        }
+        BotTickService.register(getChr().getId(), tickRunnable, initialDelayMs, getRandomDelay());
     }
 
     public synchronized void updateScheduleDelay(long newDelayMs) {
         if (this.currentDelay == newDelayMs) {
             return; // No change needed
         }
-
         this.currentDelay = newDelayMs;
-
-        // Cancel and restart
-        if (scheduledTask != null && !scheduledTask.isCancelled()) {
-            scheduledTask.cancel(false);
-        }
-
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduledTask = scheduler.scheduleWithFixedDelay(
-                    tickRunnable, currentDelay, currentDelay, TimeUnit.MILLISECONDS);
-        }
+        BotTickService.reschedule(getChr().getId(), newDelayMs);
     }
 
     // Pull the next macro tick forward to ~initialDelayMs from now, then resume the normal 2-6s
@@ -288,42 +318,60 @@ public abstract class BotSM implements EventSubscriber {
     // into the bot's map, or the bot walked into the player's map) instead of waiting out its slow
     // wheel. Debounced so a pacing player / repeated entries can't keep resetting the next tick and
     // starve the FSM. Steady state is unchanged - only the next tick moves; checkPrioritySpeed settles
-    // the cadence on the following tick. Like the other (re)schedule paths it only touches the
-    // scheduler, never calls updateState directly, so the single-thread-per-bot invariant holds.
+    // the cadence on the following tick. Only moves this bot's due time on the shared wheel, never
+    // calls updateState directly, so the no-overlapping-ticks invariant holds.
     public synchronized void nudgeSoon(long initialDelayMs) {
         if (!getRunning() || state == BotState.TRADING || state == BotState.FINISHED) {
             return; // don't disrupt a trade or a shutting-down bot
+        }
+        if (!BotTickService.isRegistered(getChr().getId())) {
+            return;
         }
         long now = System.currentTimeMillis();
         if (now - lastNudgeMs < NUDGE_DEBOUNCE_MS) {
             return;
         }
         lastNudgeMs = now;
+        soloMapling.server.BotPerfStats.NUDGES.increment();
 
         long period = getRandomDelay(); // steady state stays 2-6s; only the next tick is pulled forward
         this.currentDelay = period;
-        if (scheduler == null || scheduler.isShutdown() || scheduler.isTerminated()) {
-            return;
-        }
-        if (scheduledTask != null && !scheduledTask.isCancelled()) {
-            scheduledTask.cancel(false); // let any in-flight tick finish; never interrupt it
-        }
-        scheduledTask = scheduler.scheduleWithFixedDelay(
-                tickRunnable, initialDelayMs, period, TimeUnit.MILLISECONDS);
+        this.cadenceObserved = true; // the nudge re-established the normal cadence; next tick re-evaluates
+        BotTickService.nudge(getChr().getId(), initialDelayMs, period);
     }
 
+    // Cadence tier tracking: reschedule the observed cadence only on a tier flip, but
+    // re-assert the low cadence every unobserved tick - a reschedule is two field
+    // writes on the tick wheel now, and re-asserting lets a phase-dependent low delay
+    // (TrainingBot deepens to 60-120s while GRINDING) take effect one tick after the
+    // bot's phase changes.
+    private volatile boolean cadenceObserved = true; // startScheduledTask begins at the normal 2-6s cadence
+
     public void checkPrioritySpeed() {
-        if (checkMainPlayersOnMap()) {
-            setPriorityNormal();
+        boolean observed = checkMainPlayersOnMap();
+        if (observed) {
+            if (!cadenceObserved) {
+                cadenceObserved = true;
+                setPriorityNormal();
+            }
             return;
         }
+        cadenceObserved = false;
         setPriorityLow();
-        return;
+    }
+
+    // Unobserved macro cadence for this bot type. Jittered so cohorts that flipped to
+    // low together don't stay tick-aligned forever (Fable Phase 3: lockstep clumps CPU
+    // into bursts and aliases short !env perf windows). Deep-background types override
+    // this (TrainingBot returns 60-120s while GRINDING - abstract EXP accrues by
+    // elapsed time and the grind watchdog skips unobserved bots, so nothing is lost).
+    protected long lowPriorityDelayMs() {
+        return 9000 + random.nextInt(3000); // 9-12s
     }
 
     // Convenience methods for common adjustments
     public void setPriorityLow() {
-        updateScheduleDelay(10000); // 20 seconds
+        updateScheduleDelay(lowPriorityDelayMs());
     }
 
     public void setPriorityHigh() {
@@ -338,17 +386,13 @@ public abstract class BotSM implements EventSubscriber {
         return 2000 + random.nextInt(4000); // 2000 to 3000 ms
     }
 
-    // Method to stop the scheduled task
+    // Method to stop the scheduled task. An in-flight tick is allowed to finish
+    // (the old cancel(true) interrupt is gone); the wheel entry is simply removed.
     public synchronized void stopScheduledTask() {
         log("Shutting down scheduler: " + this.getChr().getName());
         EventBus.getInstance().unsubscribeAll(this);
         botClearChalkboard(this.getChr());
-        if (scheduledTask != null && !scheduledTask.isCancelled()) {
-            scheduledTask.cancel(true);
-        }
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduler.shutdown();
-        }
+        BotTickService.unregister(getChr().getId());
     }
 
     // todo

@@ -272,7 +272,9 @@ final class BotContactDamage {
                 && (monster.getStats() == null || !monster.getStats().isFriendly());
     }
 
-    private static void markAlerted(BotMovementState entry) {
+    // Package-visible so the attack layer can flag the pose after a swing (via GCMovement.markAlerted),
+    // not just mob-touch/fall damage. Absolute reset to now+5s; the reset task keeps the wire stance honest.
+    static void markAlerted(BotMovementState entry) {
         entry.alertedUntilMs = System.currentTimeMillis() + ALERT_DURATION_MS;
         scheduleAlertReset(entry);
     }

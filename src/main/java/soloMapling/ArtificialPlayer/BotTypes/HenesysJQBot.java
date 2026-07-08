@@ -8,7 +8,9 @@ import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementStructures.MovementRecording;
 import java.awt.Point;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
+import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotTypeManager;
+import soloMapling.server.BotTiming;
 import soloMapling.server.MethodScheduler;
 
 import java.util.List;
@@ -19,7 +21,6 @@ import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotEmo
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotSpeak;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.WarpCommands.botWarpMapOnPortal;
 import static soloMapling.ArtificialPlayer.BotDialogueHandler.getRandomDialogueLine;
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.InPacketReader.getMovementRecording;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.BotMoveStream;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.pathFinderAware;
@@ -82,11 +83,12 @@ public class HenesysJQBot extends BotSM {
 
         switch (jqState) {
             case RESET:
-                sleepAmountSeconds(2000 + random.nextInt(15000));
+                waitForRandom(2000, 17000); // startup stagger so cohorts don't climb in lockstep
                 jqState = JQState.NAVIGATE_TO_JQ;
                 break;
             case NAVIGATE_TO_JQ:
                 navigateToJQStart();
+                waitForRandom(200, 700); // human beat before starting the climb
                 jqState = JQState.ATTEMPT_JQ;
                 break;
             case ATTEMPT_JQ:
@@ -139,7 +141,6 @@ public class HenesysJQBot extends BotSM {
         if (rollChanceInverse(3)) {
             MethodScheduler.runAfterDelay(() -> chatLine("AttemptStart"), 500 + random.nextInt(2000));
         }
-        sleepAmountSeconds(200 + random.nextInt(500));
 
         if (rollChanceInverse(3)) {
             scheduleMidJQChat();
@@ -154,7 +155,7 @@ public class HenesysJQBot extends BotSM {
         }
 
         highestCompletedTier = selectedTier;
-        sleepAmountSeconds(500 + random.nextInt(1000));
+        waitForRandom(500, 1500); // settle beat before RECOVER ticks
     }
 
     private boolean recover() {
@@ -162,13 +163,15 @@ public class HenesysJQBot extends BotSM {
             hasReachedTop = true;
             chatLine("SuccessReaction");
             doEmote();
-            sleepAmountSeconds(500 + random.nextInt(1000));
             int randomX = -1810 + random.nextInt(693);
-            try {
-                pathFinderAware(getChr(), new Point(randomX, 274)); // break up stack after successful jq finish.
-            } catch (Exception e) {
-                log("[HenesysJQBot] Failed to disperse after success: " + e.getMessage());
-            }
+            BotTiming.afterRandom(500, 1500, () -> {
+                try {
+                    pathFinderAware(getChr(), new Point(randomX, 274)); // break up stack after successful jq finish.
+                } catch (Exception e) {
+                    log("[HenesysJQBot] Failed to disperse after success: " + e.getMessage());
+                }
+            });
+            waitFor(2000); // hold REST until the dispersal walk has kicked off
             return false;
         }
 
@@ -177,7 +180,7 @@ public class HenesysJQBot extends BotSM {
         if (!nearStart) {
             chatLine("FailReaction");
             if (rollChanceInverse(3)) doEmote();
-            sleepAmountSeconds(1000 + random.nextInt(2000));
+            waitForRandom(1000, 3000); // sulk beat before REST ticks
         } else {
             //I am at the start, just attempt it again.
             if (rollChanceInverse(3)) {
@@ -189,12 +192,16 @@ public class HenesysJQBot extends BotSM {
     }
 
     private void restAndDecide() {
-        sleepAmountSeconds(500 + random.nextInt(1000));
-
-        if (rollChanceInverse(3)) chatLine("RestChat");
-        if (rollChanceInverse(5)) doEmote();
-
-        sleepAmountSeconds(1000 + random.nextInt(1500));
+        // rest chatter plays off-tick; the decision below is invisible until the
+        // next tick, which the waitFor holds to the original 1.5-4s rest total
+        BotTiming.chain()
+                .pauseRandom(500, 1500)
+                .run(() -> {
+                    if (rollChanceInverse(3)) chatLine("RestChat");
+                    if (rollChanceInverse(5)) doEmote();
+                })
+                .start();
+        waitForRandom(1500, 4000);
 
         if (hasReachedTop) {
             if (random.nextDouble() < CONTINUE_JQ_CHANCE) {
@@ -261,14 +268,16 @@ public class HenesysJQBot extends BotSM {
         }
     }
 
+    // Deliberate synchronous exit script — the walk/warp steps have data-driven
+    // durations, and CONVERT must never run before the bot has left Pet Park.
     private void navigateToExit() {
         try {
             pathFinderAware(getChr(), getChr().getMap().getPortal(EXIT_PORTAL_ID).getPosition());
-            sleepAmountSeconds(1000 + random.nextInt(1000));
+            BotHelpers.blockingSleep(1000 + random.nextInt(1000));
             MapleMap destMap = getBotClient().getChannelServer().getMapFactory().getMap(HENESYS_PARK_MAP);
-            sleepAmountSeconds(1000 + random.nextInt(1000));
+            BotHelpers.blockingSleep(1000 + random.nextInt(1000));
             botWarpMapOnPortal(getChr(), destMap, EXIT_DEST_PORTAL_ID);
-            sleepAmountSeconds(1000);
+            BotHelpers.blockingSleep(1000);
             log("[HenesysJQBot] " + getChr().getName() + " exited Pet Park.");
         } catch (Exception e) {
             log("[HenesysJQBot] Failed to navigate to exit: " + e.getMessage());

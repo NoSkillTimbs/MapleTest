@@ -39,6 +39,11 @@ final class BotPhysicsEngine {
         public float JUMP_SPEED_PXS = 555.0f;       // Physics.img jumpSpeed
         public float JUMP_DOWN_PXS = 196.0f;        // measured -196 px/s down-jump kick (not in Physics.img)
         public float JUMP_ROPE_PXS = 375.0f;        // rope-jump finding (NOT applied): real client kick = (±162, -277)
+        // Flash Jump (Hermit/NL) apex impulse (GreenCatMS RE'd client constants — WZ has only mpCon, no
+        // distance key). One-time mid-air set at the apex: 550 is a hard horizontal cap (does not scale with
+        // speed%); -350 vertical re-launches the dash. See kb_bot_movement_skills_teleport_flashjump.
+        public float FLASH_JUMP_H_PXS = 550.0f;
+        public float FLASH_JUMP_V_PXS = -350.0f;
         public float MAX_FALL_PXS = 670.0f;         // Physics.img fallSpeed
         public double HFORCE_PXS = 16.667;          // was 20.0 (yields 125 px/s walk via hF*GROUNDSLIP/(FRICTION+SLOPEFACTOR))
         public double GROUNDSLIP = 3.0;
@@ -284,6 +289,23 @@ final class BotPhysicsEngine {
 
     static float ropeJumpForcePerTick(BotMovementProfile profile) {
         return profileOrBase(profile).ropeJumpSpeedPxs() * tickS();
+    }
+
+    // Flash-jump apex impulse per tick (px/tick = px/s * tickS). Horizontal is the ±550 client cap; vertical
+    // -350 re-launches the dash arc. Injected once at the apex in stepAirborne (adapted from GreenCatMS).
+    static float flashJumpHPerTick() {
+        return cfg.FLASH_JUMP_H_PXS * tickS();
+    }
+
+    static float flashJumpVPerTick() {
+        return cfg.FLASH_JUMP_V_PXS * tickS();
+    }
+
+    // Ours (tier/fit layer): the velY at which the armed dash fires. Scale 1 fires exactly at the apex
+    // (velY >= 0 — the original GreenCatMS behavior); a reduced scale fires part-way up the ascent, so
+    // the dash starts lower and lands sooner — the short flash jump for small platforms.
+    static float flashJumpTriggerVelY(BotMovementState entry) {
+        return -(1f - entry.flashJumpScale) * jumpForcePerTick(entry.movementProfile);
     }
 
     static int climbStepPerTick() {
@@ -885,6 +907,10 @@ final class BotPhysicsEngine {
         entry.airVelX = 0;
         entry.airSteerVelX = 0.0;
         entry.fixedAirArc = false;
+        // Drop any flash-jump intent that didn't reach its apex this airborne period, so a stale flag
+        // can't fire a spurious dash on a later fall.
+        entry.pendingFlashJump = false;
+        entry.flashJumpFired = false;
         entry.physX = position.x;
         entry.physY = position.y;
         clearRopeEntryIntent(entry);
@@ -1442,6 +1468,23 @@ final class BotPhysicsEngine {
             applyAirDrag(entry, bot.getMap());
         }
 
+        // Flash Jump (adapted from GreenCatMS, NutNNut): one-time mid-air impulse. Scale 1 fires at the
+        // apex (velY crosses to >= 0) with the full (±550, -350 px/s) dash; a reduced flashJumpScale
+        // (ours — level tier x platform fit) fires part-way up the ascent with a proportionally smaller
+        // impulse, producing a visibly shorter dash that stays on a small platform. Pins the arc so
+        // steering/drag leave it alone (applyAirSteering is a no-op above the input band; fixedAirArc
+        // skips drag). Direction comes from the launch airVelX (or facing if it was a straight-up jump).
+        // flashJumpFired tells tickAirborne to broadcast the type-6 "fj" frame.
+        if (entry.pendingFlashJump && entry.velY >= flashJumpTriggerVelY(entry)) {
+            int dir = entry.airVelX != 0 ? Integer.signum(entry.airVelX) : (entry.facingDir >= 0 ? 1 : -1);
+            entry.airVelX = Math.round(dir * flashJumpHPerTick() * entry.flashJumpScale);
+            entry.airSteerVelX = 0.0;
+            entry.velY = flashJumpVPerTick() * entry.flashJumpScale;
+            entry.fixedAirArc = true;
+            entry.pendingFlashJump = false;
+            entry.flashJumpFired = true;
+        }
+
         Point previousPos = roundedAirPosition(entry);
         Point nextPos = advanceAirbornePosition(entry, bot);
         AirCollision collision = resolveAirCollision(bot.getMap(), previousPos, nextPos);
@@ -1781,6 +1824,10 @@ final class BotPhysicsEngine {
         entry.airSteerVelX = 0.0;
         entry.fixedAirArc = false;
         entry.downJumpPending = false;
+        // A plain jump must never carry a stale flash-jump flag; execFlashJump re-arms
+        // pendingFlashJump right after this launch returns (mirrors GreenCatMS).
+        entry.pendingFlashJump = false;
+        entry.flashJumpFired = false;
         // Clear ground movement intent when going airborne - unified moveDir serves both
         // ground and air, so ground walk direction must not bleed into air steering.
         // Movement manager will set moveDir for air steering if shouldApplyAirSteering allows.
@@ -1811,19 +1858,53 @@ final class BotPhysicsEngine {
         return false;
     }
 
+    // Ours (SoloMapling): widened top-exit probe — see Fable Handoff 2026-07-07.
+    // The original strict probe (exactly rope.x, topY-3..topY+7) rejected trivially-steppable
+    // ladder/rope heads on uneven or slanted geometry: the bot climbed to the top, found no
+    // acceptable foothold, and hung — ClimbRecovery then kicked it off sideways and it re-climbed.
+    // This mimics the generous v83 client: accept a foothold slightly above the rope top or a few
+    // px off-axis. Shared by runtime physics (findTopLandingPoint) and graphgen (addTopStepOffEdge)
+    // so both agree on whether a clean top step-off exists. Tune live against !gcmove ropecheck.
+    static final int TOP_EXIT_UP_TOL = 24;    // px a foothold may sit ABOVE the rope top and still be a step-off
+    static final int TOP_EXIT_DOWN_TOL = 20;  // px a foothold may sit BELOW the rope top and still be a step-off
+    static final int TOP_EXIT_X_TOL = 8;      // px off rope.x we accept a foothold (kept <= cfg.ROPE_GRAB_X)
+
+    static Point findTopExitLanding(MapleMap map, Rope rope) {
+        if (map == null || rope == null) {
+            return null;
+        }
+        int topY = rope.topY();
+        // Start the downward probe ABOVE the rope top so a foothold sitting a little higher than the
+        // rope head is still seen; a topY-anchored downward search would start below it and miss it.
+        int probeY = topY - TOP_EXIT_UP_TOL - 1;
+        int lowBound = topY - TOP_EXIT_UP_TOL;
+        int highBound = topY + TOP_EXIT_DOWN_TOL;
+
+        Point best = null;
+        int bestDelta = Integer.MAX_VALUE;
+        // rope.x() first so an exactly-on-axis foothold wins ties over the off-axis fallbacks.
+        for (int x : new int[]{rope.x(), rope.x() - TOP_EXIT_X_TOL, rope.x() + TOP_EXIT_X_TOL}) {
+            Point ground = pointBelowIndexed(map, new Point(x, probeY));
+            if (ground == null || ground.y < lowBound || ground.y > highBound) {
+                continue;
+            }
+            int delta = Math.abs(ground.y - topY);
+            if (delta < bestDelta) {
+                best = ground;
+                bestDelta = delta;
+            }
+        }
+        return best;
+    }
+
     private static Point findTopLandingPoint(Character bot, Rope rope, int candidateY) {
         MapleMap map = bot.getMap();
         if (map == null) {
             return null;
         }
-
-        int probeY = Math.min(candidateY, rope.topY()) - 3;
-        Point ground = pointBelowIndexed(map, new Point(rope.x(), probeY));
-        if (ground == null) {
-            return null;
-        }
-
-        return ground.y <= rope.topY() + climbStepPerTick() + 2 ? ground : null;
+        // candidateY only tells us the climb crossed the top this tick; the widened probe is
+        // anchored on rope.topY() (see findTopExitLanding).
+        return findTopExitLanding(map, rope);
     }
 
     static int firstClimbableY(Rope rope) {
@@ -1870,6 +1951,8 @@ final class BotPhysicsEngine {
         entry.airVelX = 0;
         entry.airSteerVelX = 0.0;
         entry.fixedAirArc = false;
+        entry.pendingFlashJump = false;
+        entry.flashJumpFired = false;
         entry.wasMovingX = false;
         entry.moveDir = 0;
         entry.groundBrakeDir = 0;
@@ -2449,6 +2532,31 @@ final class BotPhysicsEngine {
         }
         int dropY = fh.getY1() != fh.getY2() ? slopeYAt(fh, initial.x) : fh.getY1();
         return new Point(initial.x, dropY);
+    }
+
+    // Furthest walkable foothold directly ABOVE p within maxRise px — the up-teleport mirror of
+    // findBelowIndexed / downLanding (there is no findAbove on the foothold tree). Ground buckets are
+    // sorted ascending by y, so the first covering foothold whose y falls in [p.y - maxRise, p.y) is the
+    // highest platform within range. Returns null (caller walks) if none, or when the tree is unindexable.
+    static Point findGroundPointAbove(MapleMap map, Point p, int maxRise) {
+        if (map == null || map.getFootholds() == null) {
+            return null;
+        }
+        FootholdCollisionIndex index = collisionIndex(map);
+        if (index == UNINDEXABLE) {
+            return null;
+        }
+        int minY = p.y - maxRise;
+        for (Foothold fh : index.groundBucketAt(p.x)) {
+            if (fh.getX1() > p.x || fh.getX2() < p.x) {
+                continue;
+            }
+            int fy = fh.getY1() != fh.getY2() ? slopeYAt(fh, p.x) : fh.getY1();
+            if (fy < p.y && fy >= minY) {
+                return new Point(p.x, fy);
+            }
+        }
+        return null;
     }
 
     // Verbatim port of the foothold tree's slope interpolation — the trig chain reduces to

@@ -66,6 +66,10 @@ public class PlayerReaction {
      * performs an emote or chat, pauses briefly, then returns so the caller
      * can resume pathfinding.
      *
+     * Deliberate synchronous choreography: runs inside the movement replay's
+     * MidMovementCheck callback on the replay thread — the replay is paused
+     * exactly as long as this blocks, which is the intended visual.
+     *
      * @return the snapshot of the player the bot reacted to
      */
     public static PlayerSnapshot executeStopReaction(Character bot, Character player) {
@@ -77,11 +81,11 @@ public class PlayerReaction {
         // BotMoveStreamHelper call (e.g. botFaceTowardsPoint). The callback
         // returning true already stops the packet loop for us.
         injectArtificialStopPacket(bot);
-        BotHelpers.sleepAmountSeconds(700);
+        BotHelpers.blockingSleep(700);
 
         // Face towards the player
         botFaceTowardsPoint(bot, player.getPosition());
-        BotHelpers.sleepAmountSeconds(400);
+        BotHelpers.blockingSleep(400);
 
         // Pick a reaction: emote, chat, or both. Chat is token-resolved against the bot and the player
         // so {PLAYER_*}/{MAP}/... never reach chat raw; if nothing resolves we emote instead.
@@ -97,7 +101,7 @@ public class PlayerReaction {
             }
         } else {
             BotEmote(bot, getRandomAmbientEmote());
-            BotHelpers.sleepAmountSeconds(500);
+            BotHelpers.blockingSleep(500);
             if (line != null) {
                 BotFullChat(bot, line);
             }
@@ -105,7 +109,7 @@ public class PlayerReaction {
 
         // Brief pause before resuming movement (500ms - 2s)
         int pauseMs = 500 + random.nextInt(2000);
-        BotHelpers.sleepAmountSeconds(pauseMs);
+        BotHelpers.blockingSleep(pauseMs);
 
         return snapshot;
     }

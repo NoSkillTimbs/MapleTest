@@ -1,5 +1,6 @@
 package soloMapling.ArtificialPlayer.BotAttackSystem;
 
+import client.Character;
 import client.inventory.WeaponType;
 import constants.id.ItemId;
 import constants.skills.Bandit;
@@ -164,6 +165,19 @@ public final class BotAttackData {
             case GUN      -> ItemId.BULLET;
             default       -> 0;
         };
+    }
+
+    /* Like projectileFor(weapon) but, for a claw bot, returns the level-appropriate star the bot chose
+     * at creation (ThrowingStarSelector), falling back to subi when there is none / the attacker isn't
+     * a registered bot. Bow/gun/dagger are unaffected. */
+    public static int projectileFor(WeaponType weaponType, Character bot) {
+        if (weaponType == WeaponType.CLAW) {
+            int chosen = ThrowingStarSelector.chosenStar(bot);
+            if (chosen > 0) {
+                return chosen;
+            }
+        }
+        return projectileFor(weaponType);
     }
 
     /*

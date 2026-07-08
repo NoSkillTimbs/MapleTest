@@ -10,6 +10,7 @@ import soloMapling.ArtificialPlayer.BotMovementSystem.MovementStructures.SingleM
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementStructures.MovementRecording;
 import soloMapling.ArtificialPlayer.BotMovementSystem.NavigationSystem.NavigationElement;
 import soloMapling.ArtificialPlayer.BotMovementSystem.NavigationSystem.PathFinder;
+import soloMapling.ArtificialPlayer.GCMoveSystem.LodCounts;
 import tools.PacketCreator;
 import tools.exceptions.EmptyMovementException;
 
@@ -24,7 +25,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.lang.Math.abs;
 import static net.server.channel.handlers.AbstractMovementPacketHandler.updatePositionBot;
-import static soloMapling.ArtificialPlayer.BotLogic.isCharNear;
 import static soloMapling.ArtificialPlayer.BotLogic.isPointNear;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.InPacketReader.getMovementRecording;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementPacketConstructor.createArtificialStopPacket;
@@ -143,7 +143,11 @@ public class MovementCommands {
 
             MovementPacket nextMvp = (i + 1 < fullRecording.size()) ? fullRecording.get(i + 1) : null; // Next element
             if (nextMvp != null) {
-                BotHelpers.waitBetweenTwoLong(mvp.getTimestamp(), nextMvp.getTimestamp());
+                if (!BotHelpers.waitBetweenTwoLong(mvp.getTimestamp(), nextMvp.getTimestamp())) {
+                    // thread interrupted (e.g. Future.cancel(true)) - stop the replay cleanly
+                    injectArtificialStopPacket(fakechar);
+                    return true;
+                }
             }
         }
         return false;
@@ -280,9 +284,17 @@ public class MovementCommands {
 
 
     public static void BotIdleStandingUpdate(Character fakechar) {
-        if (isStanding(fakechar)) {
-            BotIdleStandingUpdateForced(fakechar);
+        if (!isStanding(fakechar)) {
+            return;
         }
+        // Fable Phase 1 (F4): don't build/broadcast the idle refresh when no real player
+        // can see the map. On promotion the map-entry nudge pulls the next macro tick
+        // (and this refresh) forward, so nothing looks stale when someone walks in.
+        if (LodCounts.trackerRunning() && !LodCounts.isMapActive(fakechar.getMapId())) {
+            return;
+        }
+        soloMapling.server.BotPerfStats.IDLE_BROADCASTS.increment();
+        BotIdleStandingUpdateForced(fakechar);
     }
 
     public static void BotIdleStandingUpdateForced(Character fakechar) {

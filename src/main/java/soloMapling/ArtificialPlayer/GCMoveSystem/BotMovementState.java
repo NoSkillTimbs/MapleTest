@@ -32,6 +32,7 @@ class BotMovementState {
     volatile int followTargetId = 0;      // 0 = owner
     ScheduledFuture<?> task;              // this bot's 50ms tick handle (set by GCMovementDriver)
     BotMovementProfile movementProfile = BotMovementProfile.base();
+    long lastProfileRefreshMs = 0L;       // throttles the driver's periodic profile recompute (party Haste)
 
     // ── Physics integrator state (float "shadow" position the engine advances) ──
     float velY = 0f;
@@ -69,6 +70,16 @@ class BotMovementState {
     int airVelX = 0;                      // committed horizontal step at launch
     double airSteerVelX = 0.0;            // accumulated air-steering correction
     boolean fixedAirArc = false;          // committed nav arc — disables air steering/drag
+    // Flash Jump (Hermit/NL). execFlashJump launches a normal jump then arms pendingFlashJump; the
+    // airborne integrator injects the (±550,-350) dash impulse at the apex (velY>=0) and raises
+    // flashJumpFired so tickAirborne broadcasts the type-6 "fj" dash frame that one tick. Adapted from
+    // GreenCatMS (NutNNut).
+    boolean pendingFlashJump = false;
+    boolean flashJumpFired = false;
+    // Dash size for the armed flash jump, (0..1]: 1 = full maxed dash (fires exactly at the apex),
+    // smaller = reduced impulse fired part-way up the ascent — the short flash jump that fits a small
+    // platform. Set by execFlashJump alongside pendingFlashJump. Ours (SoloMapling tier/fit layer).
+    float flashJumpScale = 1f;
     boolean climbUpIntent = false;
     int ropeGrabCooldownMs = 0;
 
@@ -81,6 +92,10 @@ class BotMovementState {
 
     // ── Mode flags read by nav/movement (inert under pure-movement scope) ──
     volatile boolean grinding = false;
+    // Explicit rest hold: the bot is deliberately hanging idle on a rope for a grind break. Forces the
+    // climb-idle hold on (even though grinding is still set) and makes the driver freeze the hang so no
+    // nav/reaction/fidget layer dislodges it. Set/cleared via GCMovement.setRestHold.
+    volatile boolean resting = false;
     int attackCooldownMs = 0;
     volatile boolean shopVisitPending = false;
     int followTravelTargetMapId = -1;

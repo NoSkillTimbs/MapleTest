@@ -20,7 +20,7 @@ import java.util.List;
 
 import static soloMapling.ArtificialPlayer.BotHelpers.adjustCenterPositionXAxis;
 import static soloMapling.ArtificialPlayer.BotHelpers.isBot;
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
+import static soloMapling.ArtificialPlayer.BotHelpers.blockingSleep;
 import static soloMapling.ArtificialPlayer.BotLogic.announceBetString;
 import static soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands.botFaceTowardsPoint;
 import static soloMapling.BotLogger.log;
@@ -310,6 +310,9 @@ public class BlackjackDealerBot extends BotSM {
         }
     }
 
+    // Deliberate synchronous choreography: the hit/stand loop is rule-driven
+    // (each card changes the next decision), so the dealing rhythm blocks this
+    // bot's own tick - a chain can't express it and nothing else is held up.
     private void handleDealerTurn() {
         SocialCommands.BotSpeak(getChr(), "My Turn.");
         BlackjackPlayer dealer = table.getDealer();
@@ -321,7 +324,7 @@ public class BlackjackDealerBot extends BotSM {
             SocialCommands.BotSpeak(getChr(), handValue + ".");
             dealCardToPlayer(dealer);
             handValue = dealer.getHandValue();
-            sleepAmountSeconds(500);
+            blockingSleep(500);
         }
 
         SocialCommands.BotSpeak(getChr(), handValue + ".");
@@ -435,6 +438,8 @@ public class BlackjackDealerBot extends BotSM {
 
     // --- Card dealing ---
 
+    // Deliberate synchronous choreography: per-card dealing rhythm on the tick,
+    // sequence depends on live table state (bets, kicks) between cards.
     private void dealCardsToAllPlayers() {
         int size = table.getPlayerCount();
         // Deal 2 cards to everyone. Dealer gets 1 face-up card only (no face-down card for now).
@@ -455,7 +460,7 @@ public class BlackjackDealerBot extends BotSM {
                 }
 
                 dealCardToPlayer(player);
-                sleepAmountSeconds(500);
+                blockingSleep(500);
             }
         }
     }
@@ -550,6 +555,8 @@ public class BlackjackDealerBot extends BotSM {
         }
     }
 
+    // Deliberate blocking beats on a dedicated virtual thread (runAsync): the
+    // payout spray length is data-driven (bet quantity), so it can't be a chain.
     private void payWinner(BlackjackPlayer player, boolean blackjackBonus) {
         boolean isAI = isBot(player.getCharacter());
         ExecutorServiceManager.runAsync(() -> {
@@ -563,20 +570,20 @@ public class BlackjackDealerBot extends BotSM {
                     Point center = new Point(player.getOriginLocation());
                     center = adjustCenterPositionXAxis(center, i, 2, 4, 20);
                     DropCommands.botThrowItemToOwner(getChr(), mapItem.getItemId(), center, player.getCharacter());
-                    sleepAmountSeconds(100 + random.nextInt(75));
+                    blockingSleep(100 + random.nextInt(75));
                 }
             }
             player.setBetsProcessed(true);
 
             if (isAI) {
-                sleepAmountSeconds(2000 + random.nextInt(1500));
+                blockingSleep(2000 + random.nextInt(1500));
                 double lootRadius = 1500;
                 List<MapObject> betsOnFloor = BotLogic.readPlayersBetsStamps(
                         player.getCharacter(), player.getOriginLocation(), lootRadius);
                 if (!betsOnFloor.isEmpty()) {
                     for (MapObject lootItem : betsOnFloor) {
                         DropCommands.lootItemListOnFloor(player.getCharacter(), List.of(lootItem));
-                        sleepAmountSeconds(200 + random.nextInt(300));
+                        blockingSleep(200 + random.nextInt(300));
                     }
                 }
             }
@@ -674,6 +681,8 @@ public class BlackjackDealerBot extends BotSM {
         }
     }
 
+    // The runAfterDelay body hops to a virtual thread, so the emote beat inside
+    // may block (deliberate).
     private void triggerArtificialPlayerResponse(BlackjackPlayer player) {
         if (isBot(player.getCharacter())) {
             Character botChr = player.getCharacter();
@@ -693,7 +702,7 @@ public class BlackjackDealerBot extends BotSM {
                     int emote = dialog.getEmote();
                     if (emote > 0) {
                         SocialCommands.BotEmote(botChr, emote);
-                        sleepAmountSeconds(400);
+                        blockingSleep(400);
                     }
                 }
 

@@ -4,7 +4,6 @@ import client.Character;
 import soloMapling.ArtificialPlayer.BotCommandsPack.DropCommands;
 import soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands;
 import soloMapling.ArtificialPlayer.BotDialogueHandler;
-import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.ChatMessage;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
 import soloMapling.ArtificialPlayer.BotSM;
@@ -278,7 +277,7 @@ public class GameZoneHostBot extends BotSM {
             if (content.contains(DRINK_NAMES[i].toLowerCase())) {
                 selectedDrink = DRINK_IDS[i];
                 BotSpeak(getChr(), String.format("One %s, coming right up!", DRINK_NAMES[i]));
-                BotHelpers.sleepAmountSeconds(2000);
+                waitFor(2000); // beat before SERVE_DRINK ticks
                 return;
             }
         }

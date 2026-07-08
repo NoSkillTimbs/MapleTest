@@ -356,13 +356,15 @@ public class BotDialogueHandler {
         return false;
     }
 
+    // Deliberate synchronous choreography (the canonical case): blocks for the
+    // YAML-configured duration so executeBotDialogue* callers stay sequential.
     private static void runDialogue(Character character, DialogueConstructor dialog, List<String> textToShow, int emote) {
         if (dialog == null) {
             return;
         }
         BotDialogue(character, textToShow);
         BotEmote(character, emote);
-        BotHelpers.sleepAmountSeconds(dialog.getDuration());
+        BotHelpers.blockingSleep(dialog.getDuration());
     }
 
     private static List<Integer> parseEmotes(Object obj) {

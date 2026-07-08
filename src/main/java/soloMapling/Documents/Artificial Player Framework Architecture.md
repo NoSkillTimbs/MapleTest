@@ -1,6 +1,6 @@
 # Artificial Player Framework Architecture
 
-Last updated: 2026-06-12
+Last updated: 2026-07-04 (tick/concurrency sections rewritten for the BotTickService architecture, merge 71921182)
 Covers: `soloMapling/ArtificialPlayer/` core (bot identity, lifecycle, state machine, type system, decoration) and how the supporting subsystems plug into it. For subsystem deep dives see `Claude Summary.txt`; for the FM/economy pipeline see `FreeMarket and ItemPool Architecture.txt`.
 
 ---
@@ -80,19 +80,28 @@ IDLE -> RUNNING -> (PAUSE) -> TRADING -> FINISHED -> IDLE
 - **RUNNING** — the live state. Each tick: adjusts tick speed (`checkPrioritySpeed`), sends an idle-standing update packet, and checks for an accepted trade partner -> TRADING. Concrete bot types override `updateState()` and layer their own sub-FSMs on top of this skeleton.
 - **PAUSE** — defined but the auto-pause transition is currently commented out; resumes to RUNNING when a real player is on the map.
 - **TRADING** — delegates ticks to the 9-state `BotTradeSM` sub-machine until the trade completes/cancels, then cleans up and returns to RUNNING.
-- **FINISHED** — teardown: stops the scheduler, resets interactors, returns to IDLE.
+- **FINISHED** — teardown: unregisters from the tick wheel, resets interactors, returns to IDLE.
 
-### Tick model
+### Tick model (BotTickService — since 2026-07, merge 71921182)
 
-Each bot owns a **single-thread `ScheduledExecutorService`** using `scheduleWithFixedDelay` (fixed *delay*, not rate — ticks can never pile up; one runs at a time, the next is scheduled after the previous finishes).
+**No bot owns a thread.** All macro ticks ride one central wheel, `soloMapling/server/BotTickService.java`:
 
-| Priority | Delay | When |
+- One driver task (on the shared scheduled pool) scans the wheel every ~100 ms and dispatches each due bot's `updateState()` onto a **virtual thread**.
+- The old `scheduleWithFixedDelay` semantics are preserved exactly: never two concurrent ticks for one bot (per-entry CAS guard), and the next delay is measured from tick *completion*, so ticks can never pile up. `BotTickServiceTest` covers these invariants.
+- `startScheduledTask` / `updateScheduleDelay` / `nudgeSoon` / `stopScheduledTask` kept their signatures — they are now wheel operations (register / set period / pull the next due time forward / unregister). A reschedule is two field writes, not a cancel + recreate.
+- `nudgeSoon` (fed by `BotMapEntryResponder` on MAP_ENTERED) pulls the next tick to ~150–700 ms so a bot acts almost immediately when it starts sharing a map with a real player. Debounced 1.5 s; never fired at TRADING/FINISHED bots.
+
+| Cadence tier | Delay | When |
 |---|---|---|
-| Normal | random 2000–6000 ms | real players on the bot's map |
+| Observed | random 2000–6000 ms | a real player can see the bot's map (`ObserverTracker` FULL) |
 | High | 2000 ms | explicit (`setPriorityHigh`) |
-| Low | 10 000 ms | map has no real players (resource conservation) |
+| Unobserved | 9000–12000 ms jittered (`lowPriorityDelayMs`, overridable per type) | no real player; TrainingBot deepens to 60–120 s while grinding unobserved |
 
-`checkPrioritySpeed()` runs every RUNNING tick and switches between normal/low automatically. `updateScheduleDelay` cancels and reschedules the task only when the delay actually changes.
+`checkPrioritySpeed()` runs every RUNNING tick: it asks `ObserverTracker` (via `LodCounts`, O(1)) instead of scanning the map's character list, reschedules the observed cadence only on a tier flip, and re-asserts the unobserved cadence each tick so per-phase overrides take effect promptly.
+
+A **governor** inside the wheel stretches unobserved cadences (×1.5 up to ×4) if average dispatch lag stays above ~1 s for 5 s, and relaxes symmetrically on recovery. Nudges are never throttled — promotion responsiveness is sacred.
+
+**Waiting without sleeping:** FSM code never calls `Thread.sleep`. Pacing the bot's own next action = `waitFor(ms)` / `waitForRandom(lo,hi)` + set the next state + return (the wheel skips the bot until the wait passes). A delayed side-effect or scripted choreography = `BotTiming.after(...)` / `BotTiming.chain()` — full decision table in `BotTiming.java`'s header.
 
 First tick after spawn is delayed `SPAWN_CHOREOGRAPHY_MAX_MS + random(0–3000 ms)` (see `manuallyStartBot`) so bots never act mid-arrival-animation.
 
@@ -116,7 +125,7 @@ Every `BotSM` instance carries its own:
 
 `BotTypeManager.BotType` is an **enum factory**: each constant overrides `createAndSetBot(Character)`, which instantiates the concrete `BotSM` subclass and registers it in `CharacterStorage.addActiveBot(id, bot)`.
 
-15 types: `DICE_BOT, TUTORIAL_BOT, FM_BOT, SCROLL_BOT, SELLING_MERCHANT_BOT, BUYING_MERCHANT_BOT, NX_MERCHANT_BOT, GACHA_BOT, HENESYS_BOT, HENESYS_JQ_BOT, GAME_ZONE_HOST_BOT, BLACKJACK_DEALER, DROP_GAME_BOT, OPQ_BOT, SOCIAL_BOT`.
+19 constants (18 production personalities + `TEST_ATTACK_BOT`, a dev/test combat harness): `DICE_BOT, TUTORIAL_BOT, FM_BOT, SCROLL_BOT, SELLING_MERCHANT_BOT, BUYING_MERCHANT_BOT, NX_MERCHANT_BOT, GACHA_BOT, HENESYS_BOT, HENESYS_JQ_BOT, GAME_ZONE_HOST_BOT, BLACKJACK_DEALER, DROP_GAME_BOT, OPQ_BOT, SOCIAL_BOT, TOWN_WANDERER_BOT, TEST_ATTACK_BOT, TRAINING_BOT, FOLLOWER_BOT`. (`TOWN_WANDERER_BOT` = generic non-Henesys town roamer; `FOLLOWER_BOT` = grinds alongside a recruiting player — both added in v0.3.)
 
 Key operations:
 
@@ -178,11 +187,13 @@ How the rest of `soloMapling/` attaches to a bot:
 
 ## 7. Concurrency Summary
 
-- One single-thread scheduler **per bot** (created in `startScheduledTask`); fixed-delay ticks, exceptions swallowed per tick so the scheduler never dies.
-- `ExecutorServiceManager` provides shared pools and `runAsync` (virtual threads) for fire-and-forget work — spawn choreography, environment wave tasks, command dispatch (GM commands never block the client thread).
+- **Central tick wheel** (`BotTickService`): one driver task, due ticks dispatched onto virtual threads; per-bot no-overlap CAS guard; exceptions swallowed per tick so a bot error never kills the wheel. Thread count no longer scales with bot count (~150 platform threads at any population).
+- A bot's object is touched by up to four thread families: its macro tick (virtual thread), the shared 500 ms combat ticker (TrainingBot grinders), the `GCMovementDriver` pool (movement callbacks, `nudgeSoon`), and chat-dispatch workers. Cross-thread fields must be volatile or concurrent — see the Fable Audit II hazard list.
+- `ExecutorServiceManager` provides all shared pools and `runAsync` (virtual threads) for fire-and-forget work — spawn choreography, environment wave tasks, command dispatch (GM commands never block the client thread). `MethodScheduler` is a thin delegate over the same pools.
 - Shared registries (`CharacterStorage`, queues, shop-offer sessions) are `ConcurrentHashMap`-based singletons.
-- Environment startup: 7 waves, tasks within a wave parallel, wave boundary blocking (see `Environment and World Startup.md`).
+- Environment startup: 9 waves (wave 8 = training grinders, wave 9 = all-town ambient presence), tasks within a wave parallel, wave boundary blocking (see `Environment and World Startup.md`).
 - Orchestrated systems (OPQ, ConversationManager) coordinate bots from a manager loop rather than bot-to-bot communication.
+- Health readout: `!env perf` (threads, heap, tick rates, wheel lag, governor throttle, combat sweep). Architecture rationale + measured results (scale-tested to 6,571 bots): `Documents/Fable/Done/Fable Audit - 2026-07-03 Bot System Scaling & Optimization.md`.
 
 ---
 
@@ -200,13 +211,16 @@ Things that are easy to forget:
 
 - First FSM tick must tolerate the bot still being mid-choreography if you start it manually with no delay.
 - If your bot leaves its map, use `warpBotToLocation` (blocking) when subsequent steps depend on arrival.
-- Clean up in FINISHED — schedulers, parties, chalkboards, reactors.
+- Clean up in FINISHED — wheel registration, parties, chalkboards, reactors.
+- **Never `Thread.sleep`** in `updateState()` or any shared ticker: use `waitFor`/`waitForRandom` for the bot's own pacing, `BotTiming.after`/`chain` for delayed side-effects and choreography.
+- Deep-background types can override `lowPriorityDelayMs()` to slow their unobserved cadence (TrainingBot returns 60–120 s while grinding).
+- Never create an executor — everything schedules through `BotTickService` / `BotTiming` / `ExecutorServiceManager`.
 
 ---
 
 ## 9. Known Caveats
 
 - **First-player relog**: the framework needs a real `Client`; the first login after boot is sacrificed (see §1).
-- **BotSM owns its scheduler**: bots create their own single-thread executor in `startScheduledTask` rather than drawing from `ExecutorServiceManager` — ~650 bots means ~650 lightweight scheduler threads. Works fine at current scale; centralizing is a possible future refactor.
+- ~~BotSM owns its scheduler~~ — resolved 2026-07: the per-bot executor is gone; all macro ticks ride the central `BotTickService` wheel (see §3). Scale-tested to 6,571 bots at ~164 platform threads.
 - **PAUSE state** is mostly vestigial — the empty-map slowdown is handled by tick-delay scaling instead.
 - `processMessages()` on BotSM is currently unused (message handling goes through the Dispatcher path).

@@ -114,6 +114,88 @@ ids:
   - 1482025 # - Pink Flower Tube - (Knuckler)
   - 1492026 # - Pink Flower Tube - (Gun)
 
+  # --- "Weird" / boss-reward weapons bots should never wield ---
+  # Balrog weapons
+  - 1302112 # Balrog's Khan
+  - 1302113 # Balrog's Fraute
+  - 1312042 # Balrog's Gaea
+  - 1312043 # Balrog's Vifennis
+  - 1322068 # Balrog's Golden Hammer
+  - 1322069 # Balrog's Runi Hammer
+  - 1332084 # Balrog's Angelic Betrayal
+  - 1332085 # Dragon's Tail of Balrog
+  - 1332086 # Balrog's Cursayer
+  - 1332087 # Balrog's Varkit
+  - 1372050 # Balrog's Magicodar
+  - 1372051 # Balrog's Phoenix Wand
+  - 1382066 # Balrog's Kage
+  - 1382067 # Balrog's Blue Marine
+  - 1402056 # Balrog's Blue Screamer
+  - 1402057 # Heaven's Gate of Balrog
+  - 1402058 # Balrog's Berzerker
+  - 1402059 # Devil's Sunrise of Balrog
+  - 1412038 # Balrog's Helios
+  - 1412039 # Balrog's Colonian Axe
+  - 1422042 # Balrog's Morningstar
+  - 1422043 # Balrog's Leomite
+  - 1432054 # Balrog's Omega Spear
+  - 1432055 # Balrog's Fairfrozen
+  - 1442074 # Balrog's Eclipse
+  - 1442075 # Balrog's Hellslayer
+  - 1452066 # Balrog's Marine Arund
+  - 1452067 # Balrog's Fire Arund
+  - 1452068 # Balrog's Golden Arund
+  - 1452069 # Balrog's Dark Arund
+  - 1452070 # Balrog's Metus
+  - 1462059 # Balrog's Marine Raven
+  - 1462060 # Balrog's Fire Raven
+  - 1462061 # Balrog's Golden Raven
+  - 1462062 # Balrog's Dark Raven
+  - 1462063 # Balrog's Casa Crow
+  - 1472083 # Balrog's Black Mamba
+  - 1472084 # Balrog's Caster
+  - 1482031 # Balrog's Steel Renault
+  - 1482032 # Balrog's White Evil
+  - 1492035 # Balrog's Infinity
+  - 1492036 # Balrog's Peacemaker
+
+  # Zakum weapon
+  - 1372049 # Zakum's Tree Branch
+
+  # Bain weapons
+  - 1382068 # Bain Wings
+  - 1402062 # Bain Sword
+  - 1442078 # Bain Pole Arm
+  - 1452071 # Bain Long Bow
+  - 1472086 # Bain Biter
+  - 1492037 # Bain Shooter
+
+  # Basic / placeholder weapon
+  - 1442079 # Basic Polearm
+
+  # "Masks over call weapons" cosmetic weapons
+  - 1702212 # Galactic Legend - masks over call weapons
+  - 1702216 # Magic Heart Stick - masks over call weapons
+
+  # Astaroth weapons ("You can feel Astaroth's dark energy.")
+  - 1302133 # Astaroth One-Handed Sword
+  - 1332099 # Astaroth Short Sword
+  - 1372058 # Astaroth Wand
+  - 1382080 # Astaroth Staff
+  - 1402072 # Astaroth Two-Handed Sword
+  - 1412046 # Astaroth Axe
+  - 1432061 # Astaroth Spear
+  - 1442103 # Astaroth Polearm
+  - 1452085 # Astaroth Bow
+  - 1462075 # Astaroth Crossbow
+  - 1472100 # Astaroth Claw
+  - 1482046 # Astaroth Knuckles
+  - 1492048 # Astaroth Gun
+
+  # Solomon bows
+  - 1452083 # Solomon's Unstable Bow
+  - 1452084 # Solomon's Bow
+
 # Optional: omit a contiguous id block at once. Format: "min-max" (inclusive).
 # ranges:
 #   - "1302200-1302299"

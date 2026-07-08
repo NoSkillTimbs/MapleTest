@@ -22,7 +22,9 @@ import soloMapling.ArtificialPlayer.BotTypes.GameZoneHostBot;
 import soloMapling.ArtificialPlayer.BotTypes.DropGameBot;
 import soloMapling.ArtificialPlayer.BotTypes.SocialBot;
 import soloMapling.ArtificialPlayer.BotTypes.TestAttackBot;
+import soloMapling.ArtificialPlayer.BotTypes.TownWandererBot;
 import soloMapling.ArtificialPlayer.BotTypes.TrainingBot;
+import soloMapling.ArtificialPlayer.BotTypes.FollowerBot;
 
 import java.awt.*;
 import java.util.List;
@@ -147,6 +149,13 @@ public class BotTypeManager {
                 CharacterStorage.addActiveBot(character.getId(), socialBot);
             }
         },
+        TOWN_WANDERER_BOT {
+            @Override
+            public void createAndSetBot(Character character) {
+                TownWandererBot bot = new TownWandererBot(character);
+                CharacterStorage.addActiveBot(character.getId(), bot);
+            }
+        },
         TEST_ATTACK_BOT {
             @Override
             public void createAndSetBot(Character character) {
@@ -158,6 +167,13 @@ public class BotTypeManager {
             @Override
             public void createAndSetBot(Character character) {
                 TrainingBot bot = new TrainingBot(character);
+                CharacterStorage.addActiveBot(character.getId(), bot);
+            }
+        },
+        FOLLOWER_BOT {
+            @Override
+            public void createAndSetBot(Character character) {
+                FollowerBot bot = new FollowerBot(character);
                 CharacterStorage.addActiveBot(character.getId(), bot);
             }
         };
@@ -194,18 +210,29 @@ public class BotTypeManager {
         bot.startScheduledTask(2000L);
     }
 
-    public static void convertBotType(Character fakechar, BotType botType) {
-        manuallyStopBot(fakechar);
+    // Re-type a live bot in place: stop the old FSM, wrap the SAME Character in a new one, start it.
+    // Refused mid-trade (trades are sacred - tearing the FSM down would strand the trade partner).
+    public static boolean convertBotType(Character fakechar, BotType botType) {
+        BotSM existing = getBotById(fakechar.getId());
+        if (existing != null) {
+            if (existing.getState() == BotSM.BotState.TRADING) {
+                debugprint("convertBotType: refused, bot is mid-trade: " + fakechar.getName());
+                return false;
+            }
+            manuallyStopBot(fakechar);
+        }
         botType.createAndSetBot(fakechar);
         manuallyStartBot(fakechar);
+        return true;
     }
 
+    // Deliberate stagger on the GM command thread (dev tool, not bot FSM code).
     public static void massCreateBots(Integer start, Integer end, Client c) {
         for (int x = start; x < end; x++) {
             MapleMap map = getMapleMapById(c.getPlayer().getMapId());
             Point pos = c.getPlayer().getPosition();
             BotGeneration.createBot(pos, map);
-            BotHelpers.sleepAmountSeconds(50);
+            BotHelpers.blockingSleep(50);
         }
     }
 
@@ -234,7 +261,7 @@ public class BotTypeManager {
         for (int x = start; x <= end; x++) {
             Character fakechar = BotHelpers.getCharFromChannelStorage(x);
             manuallyStopBot(fakechar);
-            BotHelpers.sleepAmountSeconds(150);
+            BotHelpers.blockingSleep(150);
         }
     }
 

@@ -2,9 +2,11 @@ package soloMapling.ArtificialPlayer.GCMoveSystem;
 
 import client.Character;
 import server.maps.MapleMap;
+import server.maps.Rope;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
 
 import java.awt.Point;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -184,6 +186,63 @@ public final class GCMovement {
         BotMovementManager.broadcastMovement(st);
     }
 
+    /* Flag the bot as combat-alerted so it renders the 5s ALERT pose. The observing client already starts
+     * its own alert timer when it renders our attack packet; this keeps the bot's OWN movement broadcasts
+     * carrying ALERT instead of STAND for the duration, so a following idle/move packet doesn't cancel the
+     * pose. Called by the attack layer after each swing. No-op if the bot isn't under GC control. */
+    public static void markAlerted(Character bot) {
+        if (bot == null) {
+            return;
+        }
+        BotMovementState st = STATES.get(bot.getId());
+        if (st != null) {
+            BotContactDamage.markAlerted(st);
+        }
+    }
+
+    /* Mage blink toward a point on the current map: pick a same-ledge landing up to ~150px toward it and
+     * broadcast the teleport (or blink down to a lower platform). Returns true if it blinked, false if there's
+     * no valid landing (caller walks). The caller (MovementStylePolicy / grind approach) decides who may
+     * teleport — no MP/skill checks here (bots are decoration). */
+    public static boolean teleport(Character bot, int targetX, int targetY) {
+        if (bot == null) {
+            return false;
+        }
+        BotMovementState st = STATES.get(bot.getId());
+        return st != null && GCMovementSkills.execTeleport(st, bot, targetX, targetY);
+    }
+
+    /* Thief flash-jump (air dash) toward a target X on the current map. scaleCap = the bot's level-tier
+     * dash cap (FlashJumpTiers; 1 = full maxed dash) — the platform fit may downshift under it so a small
+     * platform gets a short dash. Returns true if it dashed, false if no arc fits (caller walks). */
+    public static boolean flashJump(Character bot, int targetX, float scaleCap) {
+        if (bot == null) {
+            return false;
+        }
+        BotMovementState st = STATES.get(bot.getId());
+        return st != null && GCMovementSkills.execFlashJump(st, bot, targetX, scaleCap);
+    }
+
+    /* Dev/calibration (the !gcmove fj hook): fire one flash jump toward dir (+1/-1) at an exact scale,
+     * bypassing the level cap and platform fit, so real dash travel can be measured on flat ground. */
+    public static boolean debugFlashJump(Character bot, int dir, float scale) {
+        if (bot == null) {
+            return false;
+        }
+        BotMovementState st = STATES.get(bot.getId());
+        return st != null && GCMovementSkills.execFlashJumpForced(st, bot, dir, scale);
+    }
+
+    /* The bot's current facing under dynamic control: true = facing left, false = right, or null when it
+     * isn't GC-driven. Used by the grind brain's turn-around micro-beat (face+step before swinging). */
+    public static Boolean isFacingLeft(Character bot) {
+        if (bot == null) {
+            return null;
+        }
+        BotMovementState st = STATES.get(bot.getId());
+        return (st == null) ? null : st.facingDir < 0;
+    }
+
     // ── Package helpers (used by GCTravel / GCFollow) ────────────────────────
 
     /* Clear only the move/farm target + nav (NOT follow or travel). GCTravel uses this between hops
@@ -328,6 +387,29 @@ public final class GCMovement {
         }
     }
 
+    /* Mark the bot as holding an explicit rest hang on a rope (a grind break's rope rest). While set, the
+     * climb-idle hold stays engaged regardless of the grind guard, and the driver freezes the hang so no
+     * nav / player-reaction / fidget layer can dislodge it. The bot must already be on the rope (isClimbing)
+     * when this is set true; clear it before dismounting. No-op if the bot isn't under GC control when
+     * clearing. */
+    public static void setRestHold(Character bot, boolean resting) {
+        if (bot == null) {
+            return;
+        }
+        if (resting) {
+            enable(bot); // ensure a state exists to carry the flag
+        }
+        BotMovementState st = STATES.get(bot.getId());
+        if (st != null) {
+            st.resting = resting;
+        }
+    }
+
+    public static boolean isResting(Character bot) {
+        BotMovementState st = bot == null ? null : STATES.get(bot.getId());
+        return st != null && st.resting;
+    }
+
     /* Jump off the rope/ladder the bot is on, biased toward dx (-1 left, +1 right, 0 straight off).
      * No-op if not currently climbing. Used by grind recovery to dismount instead of hanging. */
     public static void dismountRope(Character bot, int dx) {
@@ -353,6 +435,17 @@ public final class GCMovement {
         BotMovementState st = bot == null ? null : STATES.get(bot.getId());
         if (st != null && !st.inAir && !st.climbing) {
             BotMovementManager.initiateJump(st, bot, 0);
+        }
+    }
+
+    // ours: a directional (arced) engage hop toward dx (-1 left / +1 right; 0 = vertical). Unlike
+    // jumpInPlace (always vertical), a non-zero dx launches a real moving arc — the manager/physics
+    // already carry the ±walkStep horizontal velocity. Used by the grind brain's jump-attack so
+    // thieves close/kite in an arc instead of pogo-ing. No-op if already airborne or on a rope.
+    public static void jumpToward(Character bot, int dx) {
+        BotMovementState st = bot == null ? null : STATES.get(bot.getId());
+        if (st != null && !st.inAir && !st.climbing) {
+            BotMovementManager.initiateJump(st, bot, dx);
         }
     }
 
@@ -643,6 +736,69 @@ public final class GCMovement {
                 "GCMove bake map %d in %dms: regions=%d ropes=%d edges=%d "
                         + "(walk=%d jump=%d drop=%d climb=%d portal=%d)",
                 bot.getMapId(), ms, regions, ropes, total, walk, jump, drop, climb, portal);
+    }
+
+    // Diagnostic for the widened rope top-exit probe. Iterates the player's map ropes, runs the
+    // shared BotPhysicsEngine.findTopExitLanding, and compares against the old strict probe
+    // (exactly rope.x, topY-3..topY+climbStep+2). For each rope prints x/topY/bottomY, ladder-or-rope,
+    // the new landing Y (or none), old vs new pass, and which failure mode the old probe would hit.
+    // Feeds tolerance calibration (TOP_EXIT_UP_TOL/DOWN_TOL/X_TOL) against real WZ geometry.
+    private static final int ROPECHECK_MAX_LINES = 40;
+
+    public static List<String> ropeCheckReport(Character player) {
+        List<String> out = new ArrayList<>();
+        if (player == null || player.getMap() == null) {
+            out.add("GCMove ropecheck: no map.");
+            return out;
+        }
+        MapleMap map = player.getMap();
+        List<Rope> ropes = map.getRopes();
+        int oldStrictBand = BotPhysicsEngine.climbStepPerTick() + 2; // topY+this was the old accept ceiling
+        out.add("=== !gcmove ropecheck map " + player.getMapId() + " (" + ropes.size() + " ropes) ===");
+        out.add(String.format("tol: up=%d down=%d x=%d (old band: rope.x, topY-3..topY+%d)",
+                BotPhysicsEngine.TOP_EXIT_UP_TOL, BotPhysicsEngine.TOP_EXIT_DOWN_TOL,
+                BotPhysicsEngine.TOP_EXIT_X_TOL, oldStrictBand));
+
+        int oldPassCount = 0, newPassCount = 0, recovered = 0, stillFail = 0;
+        int shown = 0;
+        for (Rope rope : ropes) {
+            int topY = rope.topY();
+            Point oldGround = BotPhysicsEngine.pointBelowIndexed(map, new Point(rope.x(), topY - 3));
+            boolean oldPass = oldGround != null && oldGround.y <= topY + oldStrictBand;
+            Point newLanding = BotPhysicsEngine.findTopExitLanding(map, rope);
+            boolean newPass = newLanding != null;
+
+            if (oldPass) oldPassCount++;
+            if (newPass) newPassCount++;
+            if (!oldPass && newPass) recovered++;
+            if (!oldPass && !newPass) stillFail++;
+
+            if (shown < ROPECHECK_MAX_LINES) {
+                String verdict;
+                if (oldPass) {
+                    verdict = "OK";
+                } else if (!newPass) {
+                    verdict = "STILL-FAIL (no foothold in widened band)";
+                } else if (newLanding.x != rope.x()) {
+                    verdict = "recovered FM-3 (off-axis dx=" + (newLanding.x - rope.x()) + ")";
+                } else if (newLanding.y < topY) {
+                    verdict = "recovered FM-2 (above top by " + (topY - newLanding.y) + ")";
+                } else {
+                    verdict = "recovered FM-1 (below top by " + (newLanding.y - topY) + ")";
+                }
+                out.add(String.format("  x=%d topY=%d botY=%d %s | new landY=%s | old=%s -> %s",
+                        rope.x(), topY, rope.bottomY(), rope.isLadder() ? "ladder" : "rope",
+                        newPass ? String.valueOf(newLanding.y) : "none",
+                        oldPass ? "pass" : "fail", verdict));
+                shown++;
+            }
+        }
+        if (shown < ropes.size()) {
+            out.add("  ... " + (ropes.size() - shown) + " more (capped at " + ROPECHECK_MAX_LINES + ")");
+        }
+        out.add(String.format("summary: old-pass=%d new-pass=%d recovered=%d still-fail=%d",
+                oldPassCount, newPassCount, recovered, stillFail));
+        return out;
     }
 
     // ── Internal driver callback ────────────────────────────────────────────

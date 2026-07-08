@@ -76,6 +76,11 @@ public class BotGeneration {
     }
 
     public static int createBot(Point pos, MapleMap map, int baseClass, int minLevel, int maxLevel) {
+        return createBot(pos, map, baseClass, minLevel, maxLevel, 0);
+    }
+
+    // forcedJobId > 0 pins the exact job (GM 'trainhere' test spawn); 0 = a random job for the class.
+    public static int createBot(Point pos, MapleMap map, int baseClass, int minLevel, int maxLevel, int forcedJobId) {
         int cid = 2; // CID 2 = Base Bot Character
 
         Character bot = null;
@@ -94,7 +99,7 @@ public class BotGeneration {
         if (baseClass <= 0) {
             setBotVariables(bot);
         } else {
-            setBotVariables(bot, baseClass, minLevel, maxLevel);
+            setBotVariables(bot, baseClass, minLevel, maxLevel, forcedJobId);
         }
         // Choreography sleeps ~2.5-6s in total; play it on a virtual thread so
         // mass spawning isn't gated on each bot's arrival animation. Drop-down ->
@@ -141,14 +146,14 @@ public class BotGeneration {
      */
     private static void playSpawnChoreography(Character fakechar) {
         long dropDelayMs = ThreadLocalRandom.current().nextLong(500, 1201);
-        if (!BotHelpers.sleepAmountSeconds(dropDelayMs)) return;
+        if (!BotHelpers.blockingSleep(dropDelayMs)) return;
         botEnterPortalDropDown(fakechar);
 
         // Bots spawn facing right by default, so a 50% roll to flip to left gives
         // roughly even left/right distribution without a no-op right-turn.
         if (ThreadLocalRandom.current().nextBoolean()) {
             long turnDelayMs = ThreadLocalRandom.current().nextLong(1000, 1501);
-            if (!BotHelpers.sleepAmountSeconds(turnDelayMs)) return;
+            if (!BotHelpers.blockingSleep(turnDelayMs)) return;
             microTurnAroundToLeft(fakechar);
         }
     }

@@ -19,8 +19,12 @@ import soloMapling.ArtificialPlayer.BotMovementSystem.MovementCommands;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementStructures.MovementRecording;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage;
 import soloMapling.ArtificialPlayer.BotTypes.Blackjack.BlackjackDealerBot;
+import soloMapling.ArtificialPlayer.BotTypes.TrainingBot;
+import soloMapling.ArtificialPlayer.BotGrindSystem.MapMobIndex;
+import soloMapling.ArtificialPlayer.BotGrindSystem.RestSpotFinder;
 import soloMapling.ArtificialPlayer.BotPartySystem.BotPartyCommands;
 import soloMapling.ArtificialPlayer.BotPartySystem.BotPartyQueue;
+import soloMapling.ArtificialPlayer.BotPartySystem.BotRecruitManager;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.QueueMonitor;
 import soloMapling.ArtificialPlayer.BotGeneration;
 import soloMapling.ArtificialPlayer.BotHelpers;
@@ -99,6 +103,14 @@ public class ArtificialPlayerCommand extends Command {
         if (first.equals("spawn") || first.equals("spawnatk")) {
             boolean autoAttack = first.equals("spawnatk");
             ExecutorServiceManager.getExecutorService().execute(() -> handleSpawn(params, autoAttack, c));
+            return;
+        }
+        if (first.equals("trainhere") || first.equals("traintest")) {
+            ExecutorServiceManager.getExecutorService().execute(() -> handleTrainHere(params, c));
+            return;
+        }
+        if (first.equals("grindstyle")) {
+            ExecutorServiceManager.getExecutorService().execute(() -> handleGrindStyle(params, c));
             return;
         }
         if (params.length == 1) {
@@ -208,8 +220,12 @@ public class ArtificialPlayerCommand extends Command {
                 reportAttack(fakechar, BotAttackDriver.forceSingle(fakechar), "attack");
                 break;
             }
-            case "attackaoe": { // force the AoE attack (or report the bot has none)
+            case "attackaoe": { // force the sustained AoE attack (or report the bot has none)
                 reportAttack(fakechar, BotAttackDriver.forceAoe(fakechar), "attackaoe");
+                break;
+            }
+            case "attackult": { // force the throttled full-map ultimate (or report the bot has none)
+                reportAttack(fakechar, BotAttackDriver.forceUltimate(fakechar), "attackult");
                 break;
             }
             case "dicebot":
@@ -270,6 +286,38 @@ public class ArtificialPlayerCommand extends Command {
                 convertBotType(fakechar, BotTypeManager.BotType.TRAINING_BOT);
                 player.yellowMessage("Bot " + fakechar.getId() + " is now a TrainingBot (town↔grind loop).");
                 break;
+            case "breaknow": {
+                BotSM maybeTrainer = CharacterStorage.getBotById(fakechar.getId());
+                if (maybeTrainer instanceof TrainingBot tb) {
+                    player.yellowMessage(tb.forceBreakNow()
+                            ? fakechar.getName() + " will take its break on the next grind tick."
+                            : fakechar.getName() + " isn't grinding right now (breaks only fire mid-GRIND).");
+                } else {
+                    player.yellowMessage("Not a TrainingBot.");
+                }
+                break;
+            }
+            case "restspot": {
+                BotSM maybeTrainer = CharacterStorage.getBotById(fakechar.getId());
+                if (maybeTrainer instanceof TrainingBot) {
+                    for (String line : RestSpotFinder.debug(fakechar)) {
+                        player.yellowMessage(line);
+                    }
+                } else {
+                    player.yellowMessage("Not a TrainingBot.");
+                }
+                break;
+            }
+            case "followbot":
+            case "followerbot": {
+                // the commanding GM becomes the leader (same handoff the dialogue recruit flow uses)
+                BotRecruitManager.setPendingLeader(fakechar.getId(), c.getPlayer().getId());
+                boolean converted = convertBotType(fakechar, BotTypeManager.BotType.FOLLOWER_BOT);
+                player.yellowMessage(converted
+                        ? "Bot " + fakechar.getName() + " is now a FollowerBot following YOU."
+                        : "Conversion refused - bot is mid-trade.");
+                break;
+            }
             case "manualstart":
                 manuallyStartBot(fakechar);
                 break;
@@ -654,6 +702,158 @@ public class ArtificialPlayerCommand extends Command {
         }
     }
 
+    /*
+     * !bot trainhere <job> [level] [count] — spawn N TrainingBots of a SPECIFIC job at your position and pin
+     * them to grind THIS map (station-here), bypassing the normal map-discovery/travel. For testing a job's
+     * combat + movement flavor (e.g. a 3rd-job Hermit's flash-jumps, an I/L Mage's teleports). Requires a map
+     * WITH MOBS (station-here no-ops in a town). <job> takes a name or a numeric job id.
+     */
+    private static void handleTrainHere(String[] params, Client c) {
+        if (params.length < 2) {
+            player.yellowMessage("Usage: !bot trainhere <job> [level] [count]");
+            player.yellowMessage("  job: name (hermit, nightlord, chiefbandit, shadower, assassin, bandit, "
+                    + "fpwizard, ilwizard, cleric, fpmage, ilmage, priest, bishop) or a job id (e.g. 411).");
+            return;
+        }
+        Job job = resolveJob(params[1]);
+        if (job == null) {
+            player.yellowMessage("Unknown job '" + params[1] + "'. Try a name (hermit, nightlord, ilmage...) or a job id.");
+            return;
+        }
+        int baseClass = job.getJobNiche(); // 1=Warrior 2=Magician 3=Bowman 4=Thief 5=Pirate
+        if (baseClass < 1 || baseClass > 4) {
+            player.yellowMessage(job.name() + " isn't a supported training class (warrior/mage/bow/thief only).");
+            return;
+        }
+        MapleMap map = getMapleMapById(c.getPlayer().getMapId());
+        if (map == null || MapMobIndex.level(map.getId()) < 0) {
+            player.yellowMessage("Stand on a map WITH MOBS (not a town) — 'grind here' needs mobs on the map.");
+            return;
+        }
+        int level = defaultLevelForTier(job.getJobTier());
+        if (params.length >= 3 && isInteger(params[2])) {
+            int lv = Integer.parseInt(params[2]);
+            if (lv >= 1 && lv <= 200) {
+                level = lv;
+            }
+        }
+        int count = 1;
+        if (params.length >= 4 && isInteger(params[3])) {
+            count = Integer.parseInt(params[3]);
+        }
+        count = Math.max(1, Math.min(count, SPAWN_MAX_COUNT));
+
+        Point pos = c.getPlayer().getPosition();
+        List<Integer> spawned = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            // Decorate ONCE with the forced job (level + class-coherent gear + NX in a single pass, the same
+            // path !bot spawn uses) — re-decorating after createBot left the bot showing its base look.
+            int botId = BotGeneration.createBot(pos, map, baseClass, level, level, job.getId());
+            Character bot = BotHelpers.getCharFromChannelStorage(botId);
+            if (bot == null) {
+                continue;
+            }
+            BotRecruitManager.markStationHere(botId); // pin: first DECIDE grinds THIS map (no discovery/travel)
+            BotTypeManager.BotType.TRAINING_BOT.createAndSetBot(bot);
+            BotTypeManager.manuallyStartBot(bot);
+            spawned.add(botId);
+        }
+        player.yellowMessage("Spawned " + spawned.size() + " " + job.name() + " TrainingBot(s) lv" + level
+                + " pinned to this map (" + map.getId() + "); they start grinding here in ~7-10s. cids " + spawned);
+    }
+
+    /*
+     * !bot grindstyle <cid|map> <camp|patrol|roam|stack|auto> — force a TrainingBot's grind archetype ('map' = every
+     * training bot on your current map), for testing archetype behavior on arbitrary maps: ROAM on a
+     * dense camp map (HHG / Forest of Golem), CAMP on a huge sparse one. 'auto' returns the bot to the
+     * profile-resolved natural style. A live grind swaps in place; an idle bot applies it next grind.
+     * PATROL/STACK join the list as their strategies land.
+     */
+    private static void handleGrindStyle(String[] params, Client c) {
+        if (params.length < 3) {
+            player.yellowMessage("Usage: !bot grindstyle <cid|map> <camp|patrol|roam|stack|auto>");
+            return;
+        }
+        String target = params[1];
+        String styleName = params[2];
+        List<TrainingBot> targets = new ArrayList<>();
+        if (target.equalsIgnoreCase("map")) {
+            if (player == null || player.getMap() == null) {
+                return;
+            }
+            for (Character chr : player.getMap().getCharacters()) {
+                if (CharacterStorage.getBotById(chr.getId()) instanceof TrainingBot tb) {
+                    targets.add(tb);
+                }
+            }
+        } else if (isInteger(target)) {
+            if (CharacterStorage.getBotById(Integer.parseInt(target)) instanceof TrainingBot tb) {
+                targets.add(tb);
+            }
+        }
+        if (targets.isEmpty()) {
+            player.yellowMessage("No training bot found for '" + target + "' (need a TrainingBot cid, or 'map').");
+            return;
+        }
+        int done = 0;
+        String lastLine = null;
+        for (TrainingBot tb : targets) {
+            String line = tb.forceGrindStyle(styleName);
+            if (line == null) {
+                player.yellowMessage("Unknown grind style '" + styleName + "'. Use camp, patrol, roam, stack, or auto.");
+                return;
+            }
+            lastLine = line;
+            done++;
+        }
+        player.yellowMessage(done == 1 ? lastLine
+                : "Forced grind style '" + styleName.toUpperCase() + "' on " + done + " training bot(s) on this map.");
+    }
+
+    /** Sensible default level per job tier when the trainhere caller doesn't specify one. */
+    private static int defaultLevelForTier(int tier) {
+        return switch (tier) {
+            case 1 -> 25;
+            case 2 -> 45;
+            case 3 -> 90;
+            case 4 -> 140;
+            default -> 50;
+        };
+    }
+
+    /** Resolve a job name (aliases, punctuation-insensitive) or a numeric job id to a Job. Null if unknown. */
+    private static Job resolveJob(String s) {
+        if (isInteger(s)) {
+            return Job.getById(Integer.parseInt(s));
+        }
+        String k = s.toLowerCase().replaceAll("[^a-z0-9]", "");
+        switch (k) {
+            // thief
+            case "assassin", "sin": return Job.ASSASSIN;
+            case "hermit": return Job.HERMIT;
+            case "nightlord", "nl": return Job.NIGHTLORD;
+            case "bandit": return Job.BANDIT;
+            case "chiefbandit", "cb": return Job.CHIEFBANDIT;
+            case "shadower", "shad": return Job.SHADOWER;
+            // magician
+            case "fpwizard", "fpwiz": return Job.FP_WIZARD;
+            case "ilwizard", "ilwiz": return Job.IL_WIZARD;
+            case "cleric": return Job.CLERIC;
+            case "fpmage": return Job.FP_MAGE;
+            case "ilmage": return Job.IL_MAGE;
+            case "priest": return Job.PRIEST;
+            case "fparchmage": return Job.FP_ARCHMAGE;
+            case "ilarchmage": return Job.IL_ARCHMAGE;
+            case "bishop", "bish": return Job.BISHOP;
+            default:
+                try {
+                    return Job.valueOf(s.toUpperCase().replaceAll("[^A-Z0-9]", "_"));
+                } catch (IllegalArgumentException e) {
+                    return null;
+                }
+        }
+    }
+
     /** Disconnect every bot currently on the command user's map (leaves bots on other maps alone). */
     private static void removeBotsOnMyMap() {
         if (player == null || player.getMap() == null) {
@@ -672,7 +872,7 @@ public class ArtificialPlayerCommand extends Command {
         player.yellowMessage("Removed " + bots.size() + " bot(s) from map " + player.getMapId() + ".");
     }
 
-    /** Print the outcome of a forced bot attack ({@code verb} = "attack" / "attackaoe"). */
+    // Print the outcome of a forced bot attack (verb = "attack" / "attackaoe" / "attackult").
     private static void reportAttack(Character fakechar, BotAttackDriver.AttackResult res, String verb) {
         if (res.hit()) {
             player.yellowMessage(verb + " " + fakechar.getName() + " lv" + fakechar.getLevel()
@@ -702,6 +902,9 @@ public class ArtificialPlayerCommand extends Command {
         player.yellowMessage("!bot spawn <class> <tier> [n]    - spawn n geared bots, idle");
         player.yellowMessage("!bot spawnatk <class> <tier> [n] - spawn n & auto-attack here");
         player.yellowMessage("   class: warrior|mage|bow|thief  tier: 1-4 or exact lv 10-200  n<=20");
+        player.yellowMessage("!bot trainhere <job> [lv] [n]    - spawn n TrainingBots of a job, grind THIS map");
+        player.yellowMessage("   job: name (hermit, nightlord, chiefbandit, priest, ilmage...) or job id; needs a mob map");
+        player.yellowMessage("!bot grindstyle <cid|map> <s>    - force grind archetype: camp|patrol|roam|stack|auto ('map' = all here)");
         player.yellowMessage("-- Set Bot Type --");
         player.yellowMessage("!bot fmbot <cid>                 - set as FM bot");
         player.yellowMessage("!bot scrollbot <cid>             - set as scroll bot");
@@ -720,6 +923,10 @@ public class ArtificialPlayerCommand extends Command {
         player.yellowMessage("-- Bot Conversion --");
         player.yellowMessage("!bot convertfmbot <cid>          - convert to FM bot");
         player.yellowMessage("!bot convertscrollbot <cid>      - convert to scroll bot");
+        player.yellowMessage("!bot trainbot <cid>              - convert to TrainingBot");
+        player.yellowMessage("!bot followbot <cid>             - convert to FollowerBot (follows YOU)");
+        player.yellowMessage("!bot breaknow <cid>              - force a grinding TrainingBot's rest break");
+        player.yellowMessage("!bot restspot <cid>              - dump ranked rest-spot candidates (why a break spot won)");
         player.yellowMessage("!bot massfmbot <start> <end>     - mass create FM bots");
         player.yellowMessage("-- Loot --");
         player.yellowMessage("!bot loot <cid>                  - loot at feet");
@@ -729,7 +936,8 @@ public class ArtificialPlayerCommand extends Command {
         player.yellowMessage("!bot loottargetsitems <cid>      - loot your items");
         player.yellowMessage("-- Combat --");
         player.yellowMessage("!bot attack <cid>                - force single-target attack");
-        player.yellowMessage("!bot attackaoe <cid>             - force AoE attack (or says none)");
+        player.yellowMessage("!bot attackaoe <cid>             - force sustained AoE attack (or says none)");
+        player.yellowMessage("!bot attackult <cid>             - force full-map ultimate (or says none)");
         player.yellowMessage("-- Appearance --");
         player.yellowMessage("!bot randombody <cid>            - random body decoration");
         player.yellowMessage("!bot randomequips <cid>          - random equip decoration");

@@ -41,7 +41,7 @@ TrainingBot:
       - {line: "{MAP} music kinda makes me sleepy", emote: 6}
       - {line: "these {MOB} keep KSing each others spawns lol", emote: 6}
       - "so close to job adv, cant stop now"
-      - "tea's gone cold and im still grinding OTL"
+      - "tea's gone cold and im still grinding"
       - {line: "respawns are slow today, c'mon {MOB} where u at", emote: 6}
       - "five more then im out"
       - "ooh shiny xD"
@@ -57,7 +57,7 @@ TrainingBot:
       - {line: "stop hitting me i was here first", emote: 5}
       - "soft mobs go down easy, love it"
       - "mp's getting low, slow down lil guy"
-      - {line: "i keep telling myself one more hour OTL", emote: 6}
+      - {line: "i keep telling myself one more hour", emote: 6}
       - "phone buzzing, ignoring it"
       - "kinda hungry but the grind calls"
       - {line: "missed the last hit ugh", emote: 4}
@@ -271,7 +271,7 @@ TrainingBot:
       - {line: "ez level, told u id get there", emote: 3}
       - "ding!"
       - "lets gooo \\o/"
-      - "finally OTL"
+      - "finally"
       - {line: "another one for the books ^^", emote: 2}
       - "ooh new level just dropped"
       - {line: "knew i had it in me", emote: 3}
@@ -295,7 +295,7 @@ TrainingBot:
       - "new level new me lol"
       - {line: "hitting {LEVEL} at 3am alone feels kinda poetic", emote: 0}
       - "honestly didnt think id make it today but here we are"
-      - {line: "level {LEVEL} and the exp bar resets to zero again OTL", emote: 7}
+      - {line: "level {LEVEL} and the exp bar resets to zero again", emote: 7}
       - "leveled while half asleep lol"
       - {line: "ok NOW i can log off. maybe.", emote: 3}
       - "heck yeah, finally"
@@ -310,7 +310,7 @@ TrainingBot:
       - {line: "yeah yeah {LEVEL}, no big deal, totally planned this", emote: 3}
       - {line: "{LEVEL}. logged. moving on.", emote: 0}
       - {line: "oh {LEVEL}? thought i was further behind lol, nice", emote: 6}
-      - {line: "level {LEVEL} and the grind resets like always OTL", emote: 7}
+      - {line: "level {LEVEL} and the grind resets like always", emote: 7}
       - {line: "hitting {LEVEL} feels so good rn", emote: 2}
       - {line: "{LEVEL}!! that one was smooth", emote: 2}
       - {line: "level {LEVEL} baby, thats another one in the books", emote: 3}
@@ -742,7 +742,7 @@ TrainingBot:
   ShopRestock:
     text:
       - "gotta restock pots before i head back"
-      - {line: "broke again from buying pots OTL", emote: 4}
+      - {line: "broke again from buying pots", emote: 4}
       - {line: "stocking up in {REGION}, brb", emote: 0}
       - {line: "back in {REGION} to restock, almost out of whites", emote: 0}
       - {line: "pot prices r killing my mesos T_T", emote: 4}
@@ -755,7 +755,7 @@ TrainingBot:
       - "need like 200 whites before i grind again"
       - {line: "shop run before the next session", emote: 0}
       - {line: "down to 3 pots, cutting it close lol", emote: 6}
-      - {line: "broke after this shop trip OTL gotta grind more", emote: 4}
+      - {line: "broke after this shop trip, gotta grind more", emote: 4}
       - "popping back to {REGION} for a quick restock"
       - {line: "return scrolled to town just to buy pots", emote: 0}
       - {line: "got my pots, picked up a few extra return scrolls too :)", emote: 2}
@@ -768,7 +768,7 @@ TrainingBot:
       - "honestly i spend more time restocking than grinding"
       - {line: "checking how many blues i can afford T_T", emote: 4}
       - {line: "town trip, back in a sec", emote: 0}
-      - {line: "wallet empty after this one OTL", emote: 4}
+      - {line: "wallet empty after this one", emote: 4}
       - "npc shop run, the usual"
       - {line: "loaded up on pots, feeling good", emote: 2}
       - "kinda hate how fast i burn thru whites"
@@ -931,7 +931,7 @@ TrainingBot:
       - {line: "{MOB} {MOB} {MOB}... thats all i see when i close my eyes now", emote: 4}
       - "*yawn* one more pot then maybe i log off"
       - {line: "how many {MOB} have i killed today lol i lost count", emote: 0}
-      - "soooo sleepy but i dont wanna lose my spot OTL"
+      - "soooo sleepy but i dont wanna lose my spot"
       - {line: "been grinding {MOB} since forever... is it tomorrow already", emote: 4}
       - "my back hurts from sitting here so long ugh"
       - "almost there... almost... *yawn* zzz"
@@ -949,13 +949,13 @@ TrainingBot:
       - {line: "been so long my chair has a permanent dent in it now lol but the exp keeps tickin so im not movin", emote: 0}
       - "fingers on autopilot zzz"
       - "head drooping -_-"
-      - "blinking slowly OTL"
+      - "blinking slowly"
       - "running on caffeine and spite at this point"
       - "cant tell if im playing or dreaming at this point"
       - "the screen is so bright at 3am T_T"
       - {line: "should really log off but {MOB} are dropping steady right now", emote: 4}
       - "my brain stopped working like an hour ago"
-      - "everything aches but the exp bar wont stop calling me OTL"
+      - "everything aches but the exp bar wont stop calling me"
       - {line: "tired enough to cry but {MOB} just spawned again so... five more minutes lol", emote: 7}
       - {line: "IF I SEE ONE MORE {MOB} IM GOING TO SCREAM. ok im fine. one more.", emote: 5}
       - "been better."
@@ -1361,7 +1361,7 @@ TrainingBot:
       - "the world feels really big when ur just walking around like this"
       - {line: "not sure what to do after {MAP}", emote: 6}
       - "wonder if anyones grinding {MAP} right now or if its empty"
-      - {line: "the mobs in {MAP} were kinda rough today OTL", emote: 4}
+      - {line: "the mobs in {MAP} were kinda rough today", emote: 4}
       - "scrolls running out"
       - "keep grinding"
       - "round and round"
@@ -1590,6 +1590,191 @@ TrainingBot:
     emote:
       - 2
       - 6
+      - 0
+    wait: 1
+
+  # --- Party recruit menu (interactive, spoken directly to the asking player) ---
+
+  TrainingTalk:
+    text:
+      - {line: "pretty good! {MOB} exp is steady, cant complain", emote: 2}
+      - "slow but steady, u know how it is"
+      - {line: "honestly? {MAP} is underrated, exp is solid here", emote: 2}
+      - {line: "been at it a while, {MOB} are basically free exp at this point", emote: 3}
+      - "grinding's grinding lol, one bar at a time"
+      - {line: "decent! drops have been stingy tho", emote: 4}
+      - "cant complain, spawns are quick n nobody's fighting me for them"
+      - {line: "just vibing with the {MOB} honestly", emote: 0}
+      - "the exp bar moves if u stare at it hard enough lol"
+      - {line: "solid session so far, {MAP} never lets me down", emote: 2}
+      - "u know, mobs die, exp goes up, life is simple"
+      - {line: "almost leveled actually! few more {MOB} should do it", emote: 2}
+    emote:
+      - 2
+      - 0
+    wait: 1
+
+  PartyAccept:
+    text:
+      - "a party? sure!! send the invite, i keep grinding either way"
+      - {line: "yes pls, grinding with company beats solo. invite me {PLAYER_NAME}!", emote: 2}
+      - "ok deal, invite me. fair warning i dont stop swinging lol"
+      - {line: "sure {PLAYER_NAME}, shoot the invite, more the merrier", emote: 2}
+      - "finally someone asks!! yes, invite me"
+      - "im down. invite me n grab a spot, mobs are plenty"
+      - {line: "party exp bonus? say less. invite me ^^", emote: 3}
+      - "yeah ok! this map's better with two anyway, send it"
+      - {line: "sure thing {PLAYER_NAME}, invite me, ill hold this side down", emote: 2}
+      - "ok but i already claimed this ledge, u can have the rest lol. invite me!"
+    emote:
+      - 2
+      - 3
+    wait: 1
+
+  PartyDecline:
+    text:
+      - "sry im in my solo grind era rn"
+      - {line: "nah, im racing a guildie to the next level, cant split exp", emote: 3}
+      - "mm pass, i ks people by accident, better for everyone if im solo lol"
+      - {line: "cant! almost at my level goal n im not sharing these {MOB}", emote: 5}
+      - "sry, im logging soon, wouldnt be a fair party member"
+      - {line: "nahh {PLAYER_NAME}, party exp math doesnt math for me today", emote: 0}
+      - "not today, this is my meditation time lol"
+      - "id just slow u down... is what im telling myself. no ty"
+      - {line: "cant, im doing a no-party challenge run. its going terribly", emote: 7}
+      - "hmm no ty, the mobs and i have an understanding"
+      - "sry, last party wiped n took my exp with them, still recovering T_T"
+      - {line: "pass! but ur welcome to half the map {PLAYER_NAME}", emote: 0}
+      - "solo grind hits different, sry"
+      - "gonna pass rn, im way too deep in the zone sry"
+    emote:
+      - 0
+      - 4
+      - 3
+    wait: 1
+
+  PartyJoined:
+    text:
+      - "in!! ok lets farm, party exp lets gooo"
+      - {line: "joined ^^ ok {PLAYER_NAME} pick a side, mobs for days", emote: 2}
+      - "accepted! back to swinging, enjoy the shared exp"
+      - {line: "party up! ur timing is good, spawns are hot rn", emote: 2}
+      - "ok we're official, dont steal my ledge tho lol"
+      - "invite accepted, lets make these mobs regret spawning"
+      - {line: "nice, a party! ok {PLAYER_NAME}, watch this", emote: 3}
+      - "joined! grinding together > grinding alone"
+    emote:
+      - 2
+    wait: 1
+
+  FollowAccept:
+    text:
+      - "ok ok packing up, lead the way!"
+      - {line: "field trip?? yes. right behind u {PLAYER_NAME}", emote: 2}
+      - "sure, this spot was drying up anyway, im with u"
+      - {line: "ok {PLAYER_NAME}, u navigate, i follow, deal", emote: 2}
+      - "aight im done here then, show me this better map of urs"
+      - "following! if this new spot is worse im blaming u lol"
+      - {line: "yep gimme a sec... ok lets move ^^", emote: 2}
+      - "deal, ive been curious whats past this map anyway"
+    emote:
+      - 2
+    wait: 1
+
+  PartyFirst:
+    text:
+      - "invite me to ur party first so i dont lose u!"
+      - {line: "party me first {PLAYER_NAME}, then ill follow u anywhere", emote: 0}
+      - "no party no follow, them's the rules lol"
+      - "gotta be party members first, send the invite!"
+      - {line: "im not following a stranger lol, party invite first ^^", emote: 3}
+      - "ask me to party first, THEN we talk field trips"
+    emote:
+      - 0
+      - 2
+    wait: 1
+
+  AlreadyPartied:
+    text:
+      - "we're literally already partied lol"
+      - {line: "{PLAYER_NAME}... check ur party tab hehe", emote: 3}
+      - "uh, look at ur party list ^^"
+      - "already in! short memory much? lol"
+      - {line: "we ARE a party, now get over here n grind", emote: 2}
+      - "cant join twice, thats not how parties work xD"
+    emote:
+      - 3
+      - 2
+    wait: 1
+
+  Goodbye:
+    text:
+      - "cya! back to the grind"
+      - {line: "later {PLAYER_NAME}, gl out there", emote: 2}
+      - "ok these mobs arent gonna kill themselves, cya"
+      - "peace! ill be here, as always lol"
+      - {line: "cya around {PLAYER_NAME} ^^", emote: 2}
+      - "later! swing by if u change ur mind about that party"
+    emote:
+      - 2
+      - 0
+    wait: 1
+
+  # --- Grind breaks (rest flavor; Fatigue plays mid-break) ---
+
+  BreakStart:
+    text:
+      - "brb bathroom"
+      - "grabbing a snack real quick, mobs dont move"
+      - {line: "thirsty, need a water refill, brb", emote: 0}
+      - "gonna stretch my legs for a min"
+      - {line: "afk a sec, dont touch my spot lol", emote: 3}
+      - "my eyes need a break from this screen"
+      - "brb, someone's at the door"
+      - "quick break, i earned it"
+      - {line: "food break!! back in a min", emote: 2}
+      - "gotta stand up, my legs are asleep"
+      - "1 min break, the mobs can wait"
+      - {line: "pausing real quick, hands need a rest", emote: 4}
+      - "brb refilling my drink"
+      - {line: "ok 5 min break... fine, 1 min break", emote: 6}
+    emote:
+      - 0
+      - 4
+      - 6
+    wait: 1
+
+  BreakOver:
+    text:
+      - "ok back to it"
+      - {line: "im back, did i miss anything", emote: 2}
+      - "break over, mobs beware"
+      - {line: "refreshed n ready, lets go", emote: 2}
+      - "ok that helped, round two"
+      - "back! ok where was i"
+      - {line: "water acquired, grind resumed", emote: 2}
+      - "alright, focus time again"
+      - {line: "im back babyyy", emote: 2}
+      - "ok break's over, these levels wont grind themselves"
+    emote:
+      - 2
+      - 0
+    wait: 1
+
+  # Chalkboard sign texts while resting - keep these SHORT (they render on a small board).
+  BreakSign:
+    text:
+      - "brb"
+      - "getting water"
+      - "afk 1 min"
+      - "bathroom brb"
+      - "snack break"
+      - "brb dont ks pls"
+      - "resting a sec"
+      - "back soon"
+      - "brb food"
+      - "stretching"
+    emote:
       - 0
     wait: 1
 

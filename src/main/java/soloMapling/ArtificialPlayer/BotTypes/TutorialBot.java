@@ -17,6 +17,7 @@ import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
 import soloMapling.ArtificialPlayer.BotMovementSystem.MovementStructures.MovementRecording;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTradeSystem.BotTradeCommands;
+import soloMapling.server.BotTiming;
 import soloMapling.server.NXCodeManager;
 
 import java.awt.*;
@@ -34,7 +35,6 @@ import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotSpe
 import static soloMapling.ArtificialPlayer.BotCommandsPack.DropCommands.botThrowEquipsInARow;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.VFXCommands.botScrollSuccess;
 import static soloMapling.ArtificialPlayer.BotHelpers.convertItemIdToName;
-import static soloMapling.ArtificialPlayer.BotHelpers.sleepAmountSeconds;
 import static soloMapling.ArtificialPlayer.BotLogic.checkForItemOnFloor;
 import static soloMapling.ArtificialPlayer.BotLogic.readPlayerEquipBySlotName;
 import static soloMapling.ArtificialPlayer.BotLogic.waitForPlayerInRange;
@@ -203,7 +203,7 @@ public class TutorialBot extends BotSM {
                 if (tutPicked) {
                     setTutorialBotState(TutorialBotState.TUTORIAL_3);
                 }
-                BotHelpers.sleepAmountSeconds(2000);
+                waitFor(2000); // beat before TUTORIAL_3 ticks
                 break;
             case TUTORIAL_3:
                 tutorial_3();
@@ -280,9 +280,9 @@ public class TutorialBot extends BotSM {
     private void handleSelectedHat(String itemName, Integer itemIdSelected) {
         BotSpeak(getChr(), String.format("You've selected %s! Enjoy it!", itemName));
         tutPicked = true;
-        BotHelpers.sleepAmountSeconds(2500);
         int[] leftoverHats = Arrays.stream(items).filter(item -> item != itemIdSelected).toArray();
-        lootLeftoverHats(leftoverHats);
+        BotTiming.after(2500, () -> lootLeftoverHats(leftoverHats));
+        waitFor(3000); // hold ticks until the leftover-hat loot lands
     }
 
     private void handleTutPickResponse(String content) {
@@ -372,8 +372,8 @@ public class TutorialBot extends BotSM {
     private void initiateGiftTrade() {
         Character player = getInteractors().getRespondant();
         getDialogueHandler().executeBotDialogue("GiftTradeIntro", TutorialBot.this);
-        sleepAmountSeconds(2000);
-        BotTradeCommands.sendTradeRequestToPlayer(getChr(), player);
+        BotTiming.after(2000, () -> BotTradeCommands.sendTradeRequestToPlayer(getChr(), player));
+        waitFor(2500); // trade request lands at +2s
         startTime = System.currentTimeMillis();
         endTime = startTime + (30 * 1000);
     }
@@ -398,28 +398,31 @@ public class TutorialBot extends BotSM {
         Character player = getInteractors().getRespondant();
         int robeId = player.isMale() ? BLUE_SAUNA_ROBE : RED_SAUNA_ROBE;
 
-        sleepAmountSeconds(1000);
-        BotTradeCommands.writeTradeChat(getChr(), "Here are some goodies to get you started!");
-        sleepAmountSeconds(1500);
-
-        BotTradeCommands.setMeso(getChr(), TRADE_MESOS);
-        sleepAmountSeconds(500);
-        BotTradeCommands.addItemToTrade(getChr(), POWER_ELIXIR, 1000, 1);
-        sleepAmountSeconds(300);
-        BotTradeCommands.addItemToTrade(getChr(), ONYX_APPLE, 100, 2);
-        sleepAmountSeconds(300);
-        BotTradeCommands.addItemToTrade(getChr(), TOWN_SCROLL_HENESYS, 100, 3);
-        sleepAmountSeconds(300);
-        BotTradeCommands.addItemToTrade(getChr(), ILBI_STARS, 800, 4);
-        sleepAmountSeconds(300);
-        BotTradeCommands.addCleanEquipToTrade(getChr(), MAPLE_KANDAYO, 5);
-        sleepAmountSeconds(300);
-        BotTradeCommands.addCleanEquipToTrade(getChr(), robeId, 6);
-        sleepAmountSeconds(500);
-
-        BotTradeCommands.writeTradeChat(getChr(), "1B mesos, potions, scrolls, stars, and gear. All yours!");
-        sleepAmountSeconds(1000);
-        BotTradeCommands.confirmTrade(getChr());
+        // ~6s of gift choreography on a chain; dies quietly if the player cancels
+        BotTiming.chain()
+                .stopUnless(() -> getChr().getTrade() != null)
+                .pause(1000)
+                .run(() -> BotTradeCommands.writeTradeChat(getChr(), "Here are some goodies to get you started!"))
+                .pause(1500)
+                .run(() -> BotTradeCommands.setMeso(getChr(), TRADE_MESOS))
+                .pause(500)
+                .run(() -> BotTradeCommands.addItemToTrade(getChr(), POWER_ELIXIR, 1000, 1))
+                .pause(300)
+                .run(() -> BotTradeCommands.addItemToTrade(getChr(), ONYX_APPLE, 100, 2))
+                .pause(300)
+                .run(() -> BotTradeCommands.addItemToTrade(getChr(), TOWN_SCROLL_HENESYS, 100, 3))
+                .pause(300)
+                .run(() -> BotTradeCommands.addItemToTrade(getChr(), ILBI_STARS, 800, 4))
+                .pause(300)
+                .run(() -> BotTradeCommands.addCleanEquipToTrade(getChr(), MAPLE_KANDAYO, 5))
+                .pause(300)
+                .run(() -> BotTradeCommands.addCleanEquipToTrade(getChr(), robeId, 6))
+                .pause(500)
+                .run(() -> BotTradeCommands.writeTradeChat(getChr(), "1B mesos, potions, scrolls, stars, and gear. All yours!"))
+                .pause(1000)
+                .run(() -> BotTradeCommands.confirmTrade(getChr()))
+                .start();
+        waitFor(7500); // hold TUTORIAL_1 until the gift trade confirms
     }
 
     private void greetPlayer() {
@@ -486,8 +489,12 @@ public class TutorialBot extends BotSM {
         this.playersWep = lootPlayersDroppedWeapon(this.wepId);
     }
 
+    // Deliberate synchronous choreography (same ruling as BlackjackDealerBot):
+    // the dialogue steps block for YAML-configured durations, so this strictly
+    // sequential script must run on its own tick — a chain + guessed waitFor
+    // releases the FSM mid-script (bot was seen doing two states at once).
     private void upgradeAndReturnWeapon() {
-        BotHelpers.sleepAmountSeconds(2000);
+        BotHelpers.blockingSleep(2000);
         lootDialog(this.wepId);
         Equip scrolledWep = scrollPlayersDroppedWeapon(this.playersWep);
         returnUpgradedWeapon(scrolledWep);
@@ -527,7 +534,7 @@ public class TutorialBot extends BotSM {
         String weaponName = convertItemIdToName(weaponId);
         Map<String, String> replacements = Map.of("%WPN_NAME%", weaponName);
         getDialogueHandler().executeBotDialogueWithReplacementStrings("LootDialogue", replacements, TutorialBot.this);
-        BotHelpers.sleepAmountSeconds(6000);
+        BotHelpers.blockingSleep(6000);
     }
 
     private Equip scrollPlayersDroppedWeapon(Equip playersWep) {
@@ -535,7 +542,7 @@ public class TutorialBot extends BotSM {
         scrolledWep.setOwner(getInteractors().getRespondant().getName());
         botScrollSuccess(getChr());
         BotEmote(getChr(), 2);
-        BotHelpers.sleepAmountSeconds(3000);
+        BotHelpers.blockingSleep(3000);
         upgradeDialog();
         return (Equip) scrolledWep;
     }
@@ -553,6 +560,7 @@ public class TutorialBot extends BotSM {
         getDialogueHandler().executeBotDialogue("ReturnDialogue", TutorialBot.this);
     }
 
+    // Deliberate synchronous choreography — dialogue durations are YAML-driven.
     private void send_off() {
         send_off_dialog();
         escort_player_to_portal();
@@ -565,14 +573,14 @@ public class TutorialBot extends BotSM {
 
     private void escort_player_to_portal() {
         pathFinderBeta(getChr(), new Point(927,485));
-        sleepAmountSeconds(2000);
+        BotHelpers.blockingSleep(2000);
     }
 
     private void send_off_parting_gift() {
         getDialogueHandler().executeBotDialogue("SendoffPartingGiftDialogue", TutorialBot.this);
         DropCommands.botThrowItem(getChr(), 2022179, getInteractors().getRespondant().getPosition());
         noobsHelped.add(getInteractors().getRespondant().getId());
-        sleepAmountSeconds(1000);
+        waitFor(1000); // trailing beat before RETURN ticks
     }
 
     private void returnOrigin() {
@@ -584,7 +592,7 @@ public class TutorialBot extends BotSM {
 //        List<MovementPacket> mvp = readPacketsFromFile(getChr().getMapId(), tutorial_return);
         MovementRecording mvr = getMovementRecording(getChr().getMapId(), tutorial_return);
         BotMoveStream(mvr, getChr());
-        sleepAmountSeconds(1000);
+        waitFor(1000); // settle beat before RESET ticks
     }
 
     private void botWaitingForPlayerFlavorText() {
