@@ -1,118 +1,24 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <imgdir name="01952000.img">
-  <imgdir name="info">
-    <canvas name="icon" width="26" height="25">
-      <vector name="origin" x="-4" y="25"/>
-    </canvas>
-    <canvas name="iconRaw" width="25" height="24">
-      <vector name="origin" x="-4" y="25"/>
-    </canvas>
-    <string name="islot" value="Tm"/>
-    <string name="vslot" value="Tm"/>
-    <int name="tuc" value="3"/>
-    <int name="reqJob" value="2"/>
-    <int name="reqLevel" value="20"/>
-    <int name="reqSTR" value="0"/>
-    <int name="reqDEX" value="0"/>
-    <int name="reqINT" value="0"/>
-    <int name="reqLUK" value="0"/>
-    <int name="incLUK" value="2"/>
-    <int name="cash" value="0"/>
-    <int name="incPDD" value="5"/>
-    <int name="incMDD" value="8"/>
-    <imgdir name="level">
-      <imgdir name="info">
-        <imgdir name="1">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="2">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="3">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="4">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="5">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="6">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="7">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="8">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="9">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="10">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="11">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="12">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="13">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="14">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="15">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="16">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="17">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="18">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="19">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="20">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="21">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="22">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="23">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="24">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="25">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="26">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="27">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="28">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="29">
-          <int name="exp" value="10000"/>
-        </imgdir>
-        <imgdir name="30">
-          <int name="exp" value="10000"/>
-        </imgdir>
-      </imgdir>
+    <imgdir name="info">
+        <canvas name="icon" width="26" height="25" basedata="iVBORw0KGgoAAAANSUhEUgAAABoAAAAZCAYAAAAv3j5gAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFcSURBVEhLpZEBGYMgEEatsApWsAIVrGAFK1jBCqtgFrM4341jJ6iA+7/v7QOBe3BrHmQr5FFCgbHvsriurZbJgWlwUqB37V7k5WH8gzWlVhYEXavFLdci5qUykbARiRWxlqNUlEiA756SlIm0XQ8ERM5/WxjOJzmT1MZ35NDqQ7ZpGuUm/0qyr3m/52xfbyISLnn7mmEYRMTYU5MgybVdJOu61opkr7YqK5H/pu834lyXE+m6nKMTjHMSIgeWZRERYyNLYF1BontzEhIktI4wV+Z5DlCclyPQeXSp24SCiPSwQuEYRJGkKPIKJAi1AGIKUpixSvlm4fy3TD7Vr3kiISK5Ep29hjOeqty2zcJez6uAJAeJfU1UHFwhnafdOUgTEd88o2E6wa5bhp1+B6HI+Akixh4tNGewUuVSxEQFbID4hmfoXi2qaPuS1jHho8KmGNt7iz0H1FJ8muYDi2Y+zRnJFjIAAAAASUVORK5CYII=">
+            <vector name="origin" x="-4" y="25"/>
+        </canvas>
+        <canvas name="iconRaw" width="25" height="24" basedata="iVBORw0KGgoAAAANSUhEUgAAABkAAAAYCAYAAAAPtVbGAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAErSURBVEhLtZEBkYQwDEWxcBawgIVawAIWsIAFLKwFtKCF25dtcgWWtmFv/8yfaWnyXxuaG9oq7ZY1j31XdOhaF0iKpyFIcx/aZ8BPNOs/c6b2gCy8azU49TWEfQ1IABQBSCGclVwDOQEw36NrVIboiG6EI+l/jc36d3oH8CpOYjde0zZNo9zgU0D2FY/HnJ1jQQLggpevGIZBIKyjPTJAbtQCWNfVC5FaHU8WIP+i7zcUQleC6Ln0MQHWOQCS4mVZBMI6AZ3MuRqA1uYAyACMC7FXz/NsJpgXE677w4UuZWFAtFFN6NFADoCi5PYAgGkzUMIIZa1AvqWm/xWTl/sVXgASwBXk3Svoia5WdlSpqY12awdIX3EIvhWe6gThW/S/ySCso7+iL4U3zS/JOh2IgYEKsAAAAABJRU5ErkJggg==">
+            <vector name="origin" x="-4" y="25"/>
+        </canvas>
+        <string name="islot" value="Tm"/>
+        <string name="vslot" value="Tm"/>
+        <int name="tuc" value="3"/>
+        <int name="reqJob" value="2"/>
+        <int name="reqLevel" value="20"/>
+        <int name="reqSTR" value="0"/>
+        <int name="reqDEX" value="0"/>
+        <int name="reqINT" value="0"/>
+        <int name="reqLUK" value="0"/>
+        <int name="incLUK" value="2"/>
+        <int name="cash" value="0"/>
+        <int name="incPDD" value="5"/>
+        <int name="incMDD" value="8"/>
     </imgdir>
-  </imgdir>
 </imgdir>

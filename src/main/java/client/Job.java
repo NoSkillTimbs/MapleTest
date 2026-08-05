@@ -110,26 +110,47 @@ public enum Job {
                 return NIGHTWALKER1;
             case 32768:
                 return THUNDERBREAKER1;
+            case 65536:
+                return EVAN;
             default:
                 return BEGINNER;
         }
     }
 
-    public boolean isA(Job basejob) {  // thanks Steve (kaito1410) for pointing out an improvement here
+    public boolean isA(Job basejob) {
+
+        if (basejob == EVAN || basejob == LEGEND) {
+            return getId() == 2000 ||
+                    getId() == 2001 ||
+                    (getId() >= 2200 && getId() <= 2218);
+        }
+
         int basebranch = basejob.getId() / 10;
-        return (getId() / 10 == basebranch && getId() >= basejob.getId()) || (basebranch % 10 == 0 && getId() / 100 == basejob.getId() / 100);
+
+        return (getId() / 10 == basebranch && getId() >= basejob.getId())
+                || (basebranch % 10 == 0 && getId() / 100 == basejob.getId() / 100);
     }
 
+
     public int getJobNiche() {
+        if (jobid == 2000 || jobid == 2001 || (jobid >= 2200 && jobid <= 2218)) {
+            return 2; // Magician branch
+        }
+
         return (jobid / 100) % 10;
-        
+
         /*
         case 0: BEGINNER;
         case 1: WARRIOR;
         case 2: MAGICIAN;
-        case 3: BOWMAN;  
+        case 3: BOWMAN;
         case 4: THIEF;
         case 5: PIRATE;
+        case 6: EVAN;
         */
     }
+    public boolean isEvan() {
+        return jobid == 2001 || (jobid >= 2200 && jobid <= 2218);
+    }
+
 }

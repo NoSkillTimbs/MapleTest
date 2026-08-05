@@ -4216,10 +4216,10 @@ public class Character extends AbstractCharacterObject {
             }
         }
 
-        Comparator cmp = new Comparator<Pair<StatEffect, Integer>>() {
+        Comparator<Pair<StatEffect, Integer>> cmp = new Comparator<>() {
             @Override
-            public int compare(Pair<StatEffect, Integer> o1, Pair<StatEffect, Integer> o2) {
-                return o2.getRight().compareTo(o1.getRight());
+            public int compare(Pair<StatEffect, Integer> p1, Pair<StatEffect, Integer> p2) {
+                return Integer.compare(p1.getRight(), p2.getRight());
             }
         };
 
@@ -6355,12 +6355,15 @@ public class Character extends AbstractCharacterObject {
             int aids = Randomizer.rand(4, 8);
             addmp += aids + Math.floor(aids * 0.1);
         }
-        if (improvingMaxHPLevel > 0 && (job.isA(Job.WARRIOR) || job.isA(Job.PIRATE) || job.isA(Job.DAWNWARRIOR1) || job.isA(Job.THUNDERBREAKER1))) {
-            addhp += improvingMaxHP.getEffect(improvingMaxHPLevel).getX();
-        }
-        if (improvingMaxMPLevel > 0 && (job.isA(Job.MAGICIAN) || job.isA(Job.CRUSADER) || job.isA(Job.BLAZEWIZARD1))) {
+        if (improvingMaxMPLevel > 0 &&
+                (job.isA(Job.MAGICIAN)
+                        || job.isA(Job.EVAN)
+                        || job.isA(Job.CRUSADER)
+                        || job.isA(Job.BLAZEWIZARD1))) {
+
             addmp += improvingMaxMP.getEffect(improvingMaxMPLevel).getX();
         }
+
 
         if (YamlConfig.config.server.USE_RANDOMIZE_HPMP_GAIN) {
             if (getJobStyle() == Job.MAGICIAN) {
@@ -10905,4 +10908,5 @@ public class Character extends AbstractCharacterObject {
     public void setChasing(boolean chasing) {
         this.chasing = chasing;
     }
+
 }

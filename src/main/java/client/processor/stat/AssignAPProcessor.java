@@ -699,7 +699,7 @@ public class AssignAPProcessor {
             } else {
                 MaxHP += 28;
             }
-        } else if (job.isA(Job.MAGICIAN) || job.isA(Job.BLAZEWIZARD1)) {
+        } else if (job.isA(Job.MAGICIAN) || job.isA(Job.BLAZEWIZARD1) || job.isA(Job.EVAN)) {
             if (YamlConfig.config.server.USE_RANDOMIZE_HPMP_GAIN) {
                 if (usedAPReset) {
                     MaxHP += 6;

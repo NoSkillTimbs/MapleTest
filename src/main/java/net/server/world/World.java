@@ -584,8 +584,12 @@ public class World {
     }
 
     public PlayerStorage getPlayerStorage() {
+        if (players == null) {
+            players = new PlayerStorage();
+        }
         return players;
     }
+
 
     public MatchCheckerCoordinator getMatchCheckerCoordinator() {
         return matchChecker;
@@ -2211,7 +2215,7 @@ public class World {
         }
 
         players.disconnectAll();
-        players = null;
+
 
         clearWorldData();
         log.info("Finished shutting down world {}", id);

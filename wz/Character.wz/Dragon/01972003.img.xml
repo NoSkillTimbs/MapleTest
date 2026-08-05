@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<imgdir name="01972003.img">
+    <imgdir name="info">
+        <canvas name="icon" width="30" height="24" basedata="iVBORw0KGgoAAAANSUhEUgAAAB4AAAAYCAYAAADtaU2/AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAJUSURBVEhLtZVhsaswEEaxgAUs1AIWsIAFLGABC1jAAhawgIW8PVu+dCdNW+6Pl5kzuZDNnmxScps/tPSB/9ZckJY1pXVzzq5PW/tIc9uVC4jPkT81n3T2o4NIpHlJaZiyXAtY7TkyN10aDeUyfjavKldmkyMuH2fvSQySK6aUhwV8bFk4WjJQMjE0ba6YhEvfpn1+VjXaGBAncW/P8E3+Jq3JEec4e94nhDZmceRA/DDexH19yz9KhaSLxUTxsfY/xevYfKzakyEgOZRijREHiFzY2VZb1attOXmQTvb+jjhXIGlNzjOTY7URVdwZSIH3zJG83O63aiMSSxqrpdLyjNtLHM9XEEdMllIBAzUxMObS8fX9SujSwT6lS0x8rFaLexOn64JgoCavSYEzpZdYUqBa3ksIC1v9TQwSAuNpWvIWZ7qrL6plDgLgG6fnHWJJaZ44brfg2aX74T3J07mmc2vSsTRps0tjtYok1W+EX7XEgguGnji3WnOpC0oQRuk+PCs01qsX5EHs369VxsJOiz+3oSqlvcT8B9r2lI7TKjNse3mvcz3m55mCzldSdsiltu2qMv5NjNuKVq+adm4ulnwbLHkhnbrXEUl4R0rzSx9YgC/ieH1m5/o877gASfVjQs4vWdyRquXELh+7vAiJoxCQIQZupIoQ7D753Tz4fAwu2lmESUsh6CaTtCLsLx4XdpN+XwSDMUFkCtTGIcaI0RgMFlCV85KVsVICNXG+WH6guMhtMYMSMwG0gG8oVhKh7b611QQJJpXEs4vEeUAuEVrT/AN8YoOF7ccQ8QAAAABJRU5ErkJggg==">
+            <vector name="origin" x="-1" y="24"/>
+        </canvas>
+        <canvas name="iconRaw" width="30" height="21" basedata="iVBORw0KGgoAAAANSUhEUgAAAB4AAAAVCAYAAABR915hAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAIYSURBVEhLtZUBsaswEEWxgAUs1AIWsIAFLGABC1jAAhawEAv5e7a96U6avva9mb8zd9KQZU9uQtLuF5Hf6L+FA/K257wfrjSM+ehvee2HegKxH/Wr8JfSOLsASXndcp6WAtcEdutHrd2QZ5NqmT6GuyrO7OUoh8+rtxRGgiunhocJvI0CnK0YUjFp6vrimILb2OdzvbuabQyRJ/BoffQT/AXaggMuedY/F4A2ZnnUAHwzvYDH9pK/hUqCbpYTwdc+fgTvc/fWtRcDQHFUgzVGHgLkwMGW2lzvtuTUAbrY82/AxYGgLTh9Xo5uo+R4MAFFPOcdwevlfnEbJbCg0S1O6z3uH+C4vxJ55BQoDhhogRFjDp2f51dAh052lB5g8qNbTe4FnB8XBAMteAuK2FNagQVFuOW5gGhjqX8CIwER43nZyhIXDY+2css7ABBnnJZngAUlvHBcbom+Q8/LW4rntOd0dPnaunzYpbGbI0H1jfBVCyxxwdCS51QLhzqgFsAIPae7Q9P+aCXqAPbza86YWLL8dExNKPEE8w90nDlfyZyZbHl5rn291vueIu2voKyQQ23Z5TL+JsdpVbRdE+lwsODHZMUr6DI8t0jAb6CEX/qICfgkrucxS/t9v+MEBNXHBJwvWfoGqiiFHT4PZRICRyACBhhxIzWAH6EKT063yUEnkzBoDUS6yQT9K7COWCAqRmscfRFd9w/dhGW0Af5wjAAAAABJRU5ErkJggg==">
+            <vector name="origin" x="-1" y="24"/>
+        </canvas>
+        <string name="islot" value="Tm"/>
+        <string name="vslot" value="Tm"/>
+        <int name="tuc" value="3"/>
+        <int name="reqJob" value="2"/>
+        <int name="reqLevel" value="80"/>
+        <int name="reqSTR" value="0"/>
+        <int name="reqDEX" value="0"/>
+        <int name="reqINT" value="0"/>
+        <int name="reqLUK" value="0"/>
+        <int name="incJump" value="6"/>
+        <int name="cash" value="0"/>
+        <int name="incPDD" value="15"/>
+        <int name="incMDD" value="20"/>
+    </imgdir>
+</imgdir>

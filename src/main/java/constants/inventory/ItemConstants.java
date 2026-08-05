@@ -24,7 +24,9 @@ package constants.inventory;
 import client.inventory.InventoryType;
 import config.YamlConfig;
 import constants.id.ItemId;
-
+import client.inventory.Item;
+import client.inventory.InventoryType;
+import constants.inventory.ItemConstants;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;

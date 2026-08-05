@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<imgdir name="01942003.img">
+    <imgdir name="info">
+        <canvas name="icon" width="31" height="24" basedata="iVBORw0KGgoAAAANSUhEUgAAAB8AAAAYCAYAAAACqyaBAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAHQSURBVEhLlZUNkYMwEEaxgAUs1AIWsIAFLNQCFrBQC2fhLNRCLm+Tj9um/CQ784a/7L5dQqddYwRHTbSsPQ0r8jMOIfxWFUzrl4SuedAaJq0U2/P3K/HqH0bRRHWEMI/hPWX5ezorYPdpDt7DuIvh2Q9GSwMmDetiRzvPwTPPndRT08CXGFT0P7YqqbZh6nrjrgETE16MpBR5tLeSzl36TiR9jun8Sm4yCxqIe05hiY8a0HQmiOcUl9BPDNVTc6R4GGejFGtCCZiUoyYU29QZd2LiQ0xxjkgt4muUFJmfjOtSzD1RJ2fyOKkEgERSGtA9LxLUEC1iYt9nklRwja9N5xQCXQN5DkWT3MRMjdwXFxfSo6iWp9cdYX+9YIlsuUCllLB1kl81sIvDuu2vvKQQ38W+Xk0cyZ04feGS+a+6hLxMGXbfi4FvJj/7iPQTinvNn4eKS0ySOGqEfE8pvRITNjFiCb2U5+KqCY+XuhqHkSaPv132BAqpD7t310QhLWt8hV8o+szgeGRsjSQleh4ZI8ohn3qXISEJJE+RObM4nhEv8vh1QC51qHnagMSSKhkRrDdonadJfjfxGVorkdCrb3rtgsQSv5cenwfUEkV03R+ZVBZITkwxFQAAAABJRU5ErkJggg==">
+            <vector name="origin" x="-1" y="24"/>
+        </canvas>
+        <canvas name="iconRaw" width="31" height="21" basedata="iVBORw0KGgoAAAANSUhEUgAAAB8AAAAVCAYAAAC+NTVfAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGVSURBVEhLtZVtkYQwEESxgAUsnAUsYAELWFgLWMDCWjgLZwELubwJzc3OshB+XFd1JeRj3kySrW1uKjnX6M7aj7Ig332X0k9VwLJ+KtY3E3dl0Eqwza/P4mf7ZQ5JVCulsU/rsMHX4VMAGyc5vHb9DsaPtjPfScCgaZ6stf4m5ryvoN41CbyBsYL+aamC6hqGpjVfJWBg5MFAIshbdyvo2JR3IuijL/0zuMFMJJDvnMACHyWg6gyQ+wQX0FeMq6umJXjqR3MEq0IBqJRWFcrL0JivwOgFTHBaoKZ8jIIC85XxHcGMyXVwKs+VCoCBCEoCGvMgmRjyHTDa75lNCjjnY1OfQFjfmH3O0i24gakauA8un0CPVA0vx53N/XrAlL1sASqhyNYJfpbADk7zsh95dABfaV+vJI7gDlxeuGD+VUezb3OUjXsw5s1scy8qP6F81/x5KLjAbJKPEmG/d4SegZFVDFhAD2VePkvC20NdjEOVyvNvlzvBAeplY1dJBGiM8Sa/sGaDrREkWvMs/E95kHeFmuYX0hD2BKPaYusAAAAASUVORK5CYII=">
+            <vector name="origin" x="-1" y="24"/>
+        </canvas>
+        <string name="islot" value="Tm"/>
+        <string name="vslot" value="Tm"/>
+        <int name="tuc" value="3"/>
+        <int name="reqJob" value="2"/>
+        <int name="reqLevel" value="80"/>
+        <int name="reqSTR" value="0"/>
+        <int name="reqDEX" value="0"/>
+        <int name="reqINT" value="0"/>
+        <int name="reqLUK" value="0"/>
+        <int name="incPDD" value="15"/>
+        <int name="incMDD" value="20"/>
+        <int name="incINT" value="6"/>
+        <int name="cash" value="0"/>
+    </imgdir>
+</imgdir>

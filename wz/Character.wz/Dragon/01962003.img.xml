@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<imgdir name="01962003.img">
+    <imgdir name="info">
+        <canvas name="icon" width="31" height="22" basedata="iVBORw0KGgoAAAANSUhEUgAAAB8AAAAWCAYAAAA4oUfxAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGbSURBVEhLvZUBcYQwEEVjAQtYwAIWsICFWMACFrCABSxgIRa2+Rs+3cBRDo7rn3nT9sLuy6ahdQ9EFhj+bHk82jgMhVRG1BVlBta5tuFWtHgsKpHZqbh1ZcbkCxWLTLreuEI/181Mjd3Q29GCUNYqHn2UB581pyCJZSeW0FF6TSx1q6AJmtnmVjC7uCmZdW3yCUwaR74uBZBiYk43tvvJKOfnkLLe8HYkNLFZW2filHE3tSbegc0FuxWVWjEk85Bus4Q+mxpCfH7nIm0j0nsFk1OMr5SHsVyPdow3G1KC+tTmelYxoJhyTglx16xHu+VWkjQMCo6bYry3kEKOSSHH86ns82RihOKh+Z0aYoDnU9nnkamOl+hg6q76T7mZGlCMY8dlA9/ZwPJq+SjlcfMVApz8K3KK9bijFH80ANZf8Gj0H4ZKkVxqU9zgNEkag+8XUFga4lum1BdgDer/3AilFKG4ibQL3tC9wK5bUIs+6Hm4AU5KKYvZvD/BboRckp9NfASfpYjw6E+PHeH0BIVb7O/SYusAepFNnPsB2bwYFi5AOYoAAAAASUVORK5CYII=">
+            <vector name="origin" x="-1" y="22"/>
+        </canvas>
+        <canvas name="iconRaw" width="31" height="19" basedata="iVBORw0KGgoAAAANSUhEUgAAAB8AAAATCAYAAABobNZCAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAFRSURBVEhLvZWBsYMgEERpgRZswRZsgRZsgRZsIS3YAi3Ygi3QwoU9XAP6/0w06s7sJAG5xzKHMRdIFlP8XfpyaeE4WmkL0GCbypjn3ManpIuDbUVmo+DeNJUnbxUsMum8M1bHdTOTKzf0tXRBbDoFB5/g0VfFCchg2YElDoQeA0vXq1EExcriJWA2aVMy69zks5E0RT4OhQFFYqYL/T4Z4RwHlOsLfy2JLhXruwqcFXapVakHNg12SgotwYDMY+5mia8qNYAYP9NIW4m8vBrJCcYn4TE069GG1NmA0lifyxzXCoYJJpwpAR7cerRbn1KGxlGN4yYY9xZQwJEUcDyfl/2uCgwRPLpPaoBhPJ+X/S6ZutRE/6Qe2ifhRWqYYBw7mg2+ZwPL1fIJyuPmFYKZ/BY4wXrcCYqXBoz5P3yp9A9DoVANvV0ZmoTvix/Vg1Bj3hCp8WE9Ykm9AAAAAElFTkSuQmCC">
+            <vector name="origin" x="-1" y="22"/>
+        </canvas>
+        <string name="islot" value="Tm"/>
+        <string name="vslot" value="Tm"/>
+        <int name="tuc" value="3"/>
+        <int name="reqJob" value="2"/>
+        <int name="reqLevel" value="80"/>
+        <int name="reqSTR" value="0"/>
+        <int name="reqDEX" value="0"/>
+        <int name="reqINT" value="0"/>
+        <int name="reqLUK" value="0"/>
+        <int name="incSpeed" value="6"/>
+        <int name="cash" value="0"/>
+        <int name="incPDD" value="15"/>
+        <int name="incMDD" value="20"/>
+    </imgdir>
+</imgdir>

@@ -364,6 +364,10 @@
     <string name="name" value="VIP Teleport Rock"/>
     <string name="desc" value="This Teleport Rock enables one to #cteleport between continents#. It also enables the user to teleport to a specific character from the same channel. Up to #c10# maps, excluding the maps that cannot be reached through teleport, can be registered for this."/>
   </imgdir>
+    <imgdir name="5041999">
+        <string name="name" value="Hyper Teleport Rock"/>
+        <string name="desc" value="Allows you to teleport across the world."/>
+    </imgdir>
   <imgdir name="5050000">
     <string name="name" value="AP Reset"/>
     <string name="desc" value="This is the #cscroll that allows you to reset 1 AP from the ability stat#. Choose one AP from HP, MP, STR, DEX, INT, or LUK , and allocate it to the desired category. The lowest an AP level can reach on any category is 4."/>

@@ -24,8 +24,8 @@
  */
 
 var isPq = true;
-var minPlayers = 3, maxPlayers = 6;
-var minLevel = 21, maxLevel = 120;
+var minPlayers = 1, maxPlayers = 6;
+var minLevel = 21, maxLevel = 200;
 var entryMap = 190000000;
 var exitMap = 193000000;
 var recruitMap = 193000000;
@@ -38,7 +38,7 @@ var eventMaps = [190000000, 190000001, 190000002];
 var eventTime = 45;         // 45 minutes
 var couponsNeeded = 400;    // total of coupons to complete the event
 
-const maxLobbies = 1;
+const maxLobbies = 3;
 
 function init() {
     setEventRequirements();

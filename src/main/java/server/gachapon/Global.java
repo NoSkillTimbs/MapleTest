@@ -41,7 +41,10 @@ public class Global extends GachaponItems {
                 2049100, 2340000,
 
                 /* Chairs */
-                3010063, 3010064
+                3010063, 3010064,
+
+                /* Rares */
+                1472063, 1122017
         };
     }
 

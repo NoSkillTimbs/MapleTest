@@ -40,8 +40,7 @@ public class KerningCity extends GachaponItems {
                 1332029, 1092019, 1061099, 1060106, 1040032, 1040059, 1332003, 1040060, 1060046, 1472005, 1332027,
 
                 /* Pirate equipment */
-                1082192, 1072288, 1492003, 1052113, 1052104,
-                1492002, 1052095, 1492001, 1002613, 1492004
+
         };
     }
 
@@ -52,7 +51,7 @@ public class KerningCity extends GachaponItems {
 
     @Override
     public int[] getRareItems() {
-        return new int[]{};
+        return new int[]{1022082, 2070006, 4000313, 2070016};
     }
 
 }

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<imgdir name="01962004.img">
+    <imgdir name="info">
+        <canvas name="icon" width="32" height="25" basedata="iVBORw0KGgoAAAANSUhEUgAAACAAAAAZCAYAAABQDyyRAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAHRSURBVEhLtZQBlYQwDESxUAtroRZqAQtYqIVawAIWsIAFLKyFXCcwEHos7C7LvDePK93kJ2m56qJkNsV16Z9LE4cQNqCUorpp6rznZYiVtPW6b/y1NEFd15qcBTjnZOi8dE0l3nv1s3O6jz2sURAKg5kn+21pAILHDPoHbydoCce+hffR6bOYzKmWsRJQFmA75x7eAwI4jT0YcbMPpT8CfOzCAkHysgC8x36X39vu8UQRn4IhBfd9r3AL2YOzMAvXLCvQvjvVAscTUIKQfK8AvNuBf6UNHMkB0fFmpzxOC+J4sf4pXHovMubPLbily6gXajtm7uHv2ZckUD8+pU6jhDTIkNbbje7LAowvS7uXsRXfDAqP3TMv1wIALY9gCv2NtHsoxAme8kkAxgJYxB0FzN3nM8+jJ7wfRS+YLQBr+xVM4de1XDwUYOG8ZPRt4+dnBwBMOG3htxWAxBZqfScc0u7xjyaGbee4F3fDoQx5LFAUATBcgG+BQ9oloW+A3Rc+1ALcASP4Yexnhw/MGMS/LMZCYcKQoM5uZkfjtGO7b41Y5EHOw4mwY4KZgID2xLYY+uMCzjp/Zf6WMJrHcHgEVpwCjeDS9mytbRyMXPSOquoP4Nh1QYHo0D8AAAAASUVORK5CYII=">
+            <vector name="origin" x="-1" y="25"/>
+        </canvas>
+        <canvas name="iconRaw" width="32" height="22" basedata="iVBORw0KGgoAAAANSUhEUgAAACAAAAAWCAYAAAChWZ5EAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGISURBVEhLvZSBkYQgDEVtgRauBVqgBVuwBVqgBVugBVqwBVrYFnL8aDByzu3dKv6ZPx5kyUsi3nBRtFkk69a3ixM75w6gEDx7msYSs7T4geZxjyt/LE4wjiMnlwKMMbRES3EayFrLfkXDccSwRkEoDJY8xX8WH8DhXEA/4PMKbeGIa3jyhp/NZN6qjlUAbQG6c4lhHxDAxYjBOLf5V/GPAM/RVQiStwVgH/FY9nX3eKKI/4IhBqeUGK4hZ3ApTMM5yw7Ue29V4XgCKiAkPysAeyfwj3SAIzkgPN7iUMapQTJerG+FU7JEuXxuztQuPV+o45glhr83XxJBKb9oDJlcWGgJ++1G920BypfF3VOeyU4Lw318leVeAKDtK1iP3iPuHnJ+hYfyJgCTAqSIHgVs3Zd3XkYv8JSJL5guAGv9FazHr6tePBSg4XLJxN3GL58dALDAxRrerQAk1lDtnnCIu8c/Gu+OneNe9IZDBfJVoSgCYLgBd4FD3KVAnwSLKvBpsJaGPggehm8BKk6bRtkNAwAAAABJRU5ErkJggg==">
+            <vector name="origin" x="-1" y="25"/>
+        </canvas>
+        <string name="islot" value="Tm"/>
+        <string name="vslot" value="Tm"/>
+        <int name="tuc" value="4"/>
+        <int name="reqJob" value="2"/>
+        <int name="reqLevel" value="125"/>
+        <int name="reqSTR" value="0"/>
+        <int name="reqDEX" value="0"/>
+        <int name="reqINT" value="0"/>
+        <int name="reqLUK" value="0"/>
+        <int name="incSpeed" value="10"/>
+        <int name="cash" value="0"/>
+        <int name="incPDD" value="40"/>
+        <int name="incMDD" value="60"/>
+        <int name="price" value="32000"/>
+        <int name="equipTradeBlock" value="1"/>
+        <int name="tradeAvailable" value="2"/>
+        <imgdir name="level">
+            <imgdir name="info">
+                <imgdir name="1">
+                    <int name="incINTMin" value="0"/>
+                    <int name="incINTMax" value="1"/>
+                    <int name="incLUKMin" value="0"/>
+                    <int name="incLUKMax" value="1"/>
+                    <int name="incPDDMin" value="5"/>
+                    <int name="incPDDMax" value="10"/>
+                    <int name="incMDDMin" value="5"/>
+                    <int name="incMDDMax" value="10"/>
+                    <int name="exp" value="70"/>
+                </imgdir>
+                <imgdir name="2">
+                    <int name="incINTMin" value="0"/>
+                    <int name="incINTMax" value="1"/>
+                    <int name="incLUKMin" value="0"/>
+                    <int name="incLUKMax" value="1"/>
+                    <int name="incPDDMin" value="5"/>
+                    <int name="incPDDMax" value="10"/>
+                    <int name="incMDDMin" value="5"/>
+                    <int name="incMDDMax" value="10"/>
+                    <int name="exp" value="75"/>
+                </imgdir>
+                <imgdir name="3">
+                    <int name="incINTMin" value="0"/>
+                    <int name="incINTMax" value="1"/>
+                    <int name="incLUKMin" value="0"/>
+                    <int name="incLUKMax" value="1"/>
+                    <int name="incPDDMin" value="5"/>
+                    <int name="incPDDMax" value="10"/>
+                    <int name="incMDDMin" value="5"/>
+                    <int name="incMDDMax" value="10"/>
+                    <int name="exp" value="80"/>
+                </imgdir>
+                <imgdir name="4">
+                    <int name="exp" value="0"/>
+                </imgdir>
+            </imgdir>
+            <imgdir name="case">
+                <imgdir name="0">
+                    <int name="prob" value="1"/>
+                </imgdir>
+            </imgdir>
+        </imgdir>
+    </imgdir>
+</imgdir>

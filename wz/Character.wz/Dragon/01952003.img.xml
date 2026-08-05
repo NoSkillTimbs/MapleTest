@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<imgdir name="01952003.img">
+    <imgdir name="info">
+        <canvas name="icon" width="29" height="29" basedata="iVBORw0KGgoAAAANSUhEUgAAAB0AAAAdCAYAAABWk2cPAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAHTSURBVEhLrZQBFYMgEIatYAUqWMEKVLACFahghVWwwiqsghVu9x+eHo4p0/3vfW+CyMeBs/lTqIK/ZJ0whnBI3/W3xTLBGEdBJ7X4PueumKZpElnnupUzKfquikXonBNUiP4j7kgzIUDfwlkuSTMh2gu/hMJQLy0Jf40I9ezRTt3lyAA8cEOIUIyxSko0JtEv51CICLHo3UtXDNGjlQF3tlWFO2kxRK+0osEnsfTWRceT934V1ix8lS7Uhp5hA+1aIUI09ESzr5XKuFfk7Wyd8Bg26XL/MEk4BkLQTt1ZtF/QyiAbuzb9+mzMYTYhwPUmXpn5BQNWpqCtVTKnyYWIEfOrLOcM2dC4DMio6USIeRaqkgs5z96Rb9oPToTVYRk/bISosCQEOC9wX8pbt4bl36pUGdDzvCJE+O+hZ8c5qDL0ufRqlQib5iTkKqe2y0SYFKjsH1UiSYjsqgxuu55YpuhC7ktNlZG3cRUzWt1OpLQnfI14VQTwddEPAT5xGGPoK+kWHPOxAD7WKOc0TwssQ78hGGIBe98yMJ6BPBPjayAyXBvwkE46nmAXoBxKERVhWzAIg4Fd9Td0rAoU3eLi9mpwAwMUPROLPSuLfQ5gLsWkad5R0tEHjepDjwAAAABJRU5ErkJggg==">
+            <vector name="origin" x="-2" y="29"/>
+        </canvas>
+        <canvas name="iconRaw" width="29" height="28" basedata="iVBORw0KGgoAAAANSUhEUgAAAB0AAAAcCAYAAACdz7SqAAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAGaSURBVEhLvZSBkYMgEEVtwRZowRZsgRZsgRZowRbSgi2khbRgC5v9i4vgeYri3Z95EyGEx4KheShUwCOJE3rnDum7vlosE4x+FHTSFNvn1IppmiaRdaaLnEnRd1csQmOMoEL0H1EjzYQAfQtnuSXNhGgvXAm5oVy6J7waEerZox269yMD8IMKIULe+yIp0RhEV85hJyLEojcv3W6IXq0MqNlWFW6kuyH6hBUNNoiltyw6nqy1UViy8ChdKA293QrapUKEaOiJZlsqlXEfz9vZGuE1rNLl+8ME4egIQTt0Z9F+QSuDbOza8GmzMYdZhQDPqzgy8wsGUpmCtlbJnCYXIomYX2U5Z8iGxmRARk0nQsyzUJRcyHn3hmzT/uBEWByW8Y8TISrcEwKcF6iX8tbFsPy3KlUG9DzvCBH+e+jZcQ6qdH0uvVslwqY5CLnKqe0yESYFKnuiSiQIkU2VzqzPE8sUXUi9NKnS8zZGMaPVbUS3hRrxqgjgdtGLAFccxiQ8Ej5WL+c0TwssQ3/C48FtIDI8J/x5/knUNF9amq8YX0ytIQAAAABJRU5ErkJggg==">
+            <vector name="origin" x="-2" y="29"/>
+        </canvas>
+        <string name="islot" value="Tm"/>
+        <string name="vslot" value="Tm"/>
+        <int name="tuc" value="3"/>
+        <int name="reqJob" value="2"/>
+        <int name="reqLevel" value="80"/>
+        <int name="reqSTR" value="0"/>
+        <int name="reqDEX" value="0"/>
+        <int name="reqINT" value="0"/>
+        <int name="reqLUK" value="0"/>
+        <int name="incLUK" value="6"/>
+        <int name="cash" value="0"/>
+        <int name="incPDD" value="15"/>
+        <int name="incMDD" value="20"/>
+    </imgdir>
+</imgdir>

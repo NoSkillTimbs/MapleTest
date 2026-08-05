@@ -91671,4 +91671,15 @@
     <int name="Priority" value="7"/>
     <int name="SN" value="60001001"/>
   </imgdir>
+<imgdir name="8943">
+    <int name="SN" value="10008943"/>
+    <int name="ItemId" value="5041999"/>
+    <int name="Count" value="1"/>
+    <int name="Price" value="4500"/>
+    <int name="Period" value="90"/>
+    <int name="Priority" value="8"/>
+    <int name="Gender" value="2"/>
+    <int name="OnSale" value="0"/>
+</imgdir>
+
 </imgdir>

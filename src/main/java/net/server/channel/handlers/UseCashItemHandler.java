@@ -127,48 +127,91 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
 
         if (itemType == 504) { // vip teleport rock
             String error1 = "Either the player could not be found or you were trying to teleport to an illegal location.";
-            boolean vip = p.readByte() == 1 && itemId / 1000 >= 5041;
+
+            boolean isHyperRock = (itemId == 5041999);
+
+            boolean vip = p.readByte() == 1
+                    && itemId / 1000 >= 5041
+                    && !isHyperRock;
+
             remove(c, position, itemId);
+
             boolean success = false;
+
             if (!vip) {
                 int mapId = p.readInt();
-                if (itemId / 1000 >= 5041 || mapId / 100000000 == player.getMapId() / 100000000) { //check vip or same continent
-                    MapleMap targetMap = c.getChannelServer().getMapFactory().getMap(mapId);
-                    if (!FieldLimit.CANNOTVIPROCK.check(targetMap.getFieldLimit()) && (targetMap.getForcedReturnId() == MapId.NONE || MapId.isMapleIsland(mapId))) {
-                        player.forceChangeMap(targetMap, targetMap.getRandomPlayerSpawnpoint());
+
+                if (isHyperRock
+                        || itemId / 1000 >= 5041
+                        || mapId / 100000000 == player.getMapId() / 100000000) {
+
+                    MapleMap targetMap = c.getChannelServer()
+                            .getMapFactory()
+                            .getMap(mapId);
+
+                    if (targetMap != null
+                            && (!FieldLimit.CANNOTVIPROCK.check(targetMap.getFieldLimit())
+                            || isHyperRock)
+                            && (targetMap.getForcedReturnId() == MapId.NONE
+                            || MapId.isMapleIsland(mapId)
+                            || isHyperRock)) {
+
+                        player.forceChangeMap(
+                                targetMap,
+                                targetMap.getRandomPlayerSpawnpoint());
+
                         success = true;
+
                     } else {
                         player.dropMessage(1, error1);
                     }
-                } else {
-                    player.dropMessage(1, "You cannot teleport between continents with this teleport rock.");
-                }
-            } else {
-                String name = p.readString();
-                Character victim = c.getChannelServer().getPlayerStorage().getCharacterByName(name);
 
-                if (victim != null) {
-                    MapleMap targetMap = victim.getMap();
-                    if (!FieldLimit.CANNOTVIPROCK.check(targetMap.getFieldLimit()) && (targetMap.getForcedReturnId() == MapId.NONE || MapId.isMapleIsland(targetMap.getId()))) {
-                        if (!victim.isGM() || victim.gmLevel() <= player.gmLevel()) {   // thanks Yoboes for noticing non-GM's being unreachable through rocks
-                            player.forceChangeMap(targetMap, targetMap.findClosestPlayerSpawnpoint(victim.getPosition()));
-                            success = true;
-                        } else {
-                            player.dropMessage(1, error1);
-                        }
-                    } else {
-                        player.dropMessage(1, "You cannot teleport to this map.");
-                    }
                 } else {
-                    player.dropMessage(1, "Player could not be found in this channel.");
+                    player.dropMessage(1,
+                            "You cannot teleport between continents with this teleport rock.");
+                }
+
+            } else {
+                String targetName = p.readString();
+
+                Character target = c.getChannelServer()
+                        .getPlayerStorage()
+                        .getCharacterByName(targetName);
+
+                if (target == null) {
+                    player.dropMessage(1, error1);
+
+                } else {
+                    MapleMap targetMap = target.getMap();
+
+                    if (targetMap != null
+                            && (!FieldLimit.CANNOTVIPROCK.check(targetMap.getFieldLimit())
+                            || isHyperRock)
+                            && (targetMap.getForcedReturnId() == MapId.NONE
+                            || MapId.isMapleIsland(targetMap.getId())
+                            || isHyperRock)) {
+
+                        player.forceChangeMap(
+                                targetMap,
+                                targetMap.getPortal(0));
+
+                        success = true;
+
+                    } else {
+                        player.dropMessage(1, error1);
+                    }
                 }
             }
 
             if (!success) {
-                InventoryManipulator.addById(c, itemId, (short) 1);
+                if (!isHyperRock) {
+                    InventoryManipulator.addById(c, itemId, (short) 1);
+                }
+
                 c.sendPacket(PacketCreator.enableActions());
             }
-        } else if (itemType == 505) { // AP/SP reset
+        }
+        else if (itemType == 505) { // AP/SP reset
             if (!player.isAlive()) {
                 c.sendPacket(PacketCreator.enableActions());
                 return;
@@ -228,7 +271,10 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
                     return;
                 }
             }
-            remove(c, position, itemId);
+            if (itemId != 5041999) {
+                remove(c, position, itemId);
+            }
+
         } else if (itemType == 506) {
             Item eq = null;
             if (itemId == 5060000) { // Item tag.
