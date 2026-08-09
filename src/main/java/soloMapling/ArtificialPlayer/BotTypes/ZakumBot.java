@@ -119,6 +119,7 @@ public class ZakumBot extends BotSM {
         ensureCombatTicker();
 
         Character chr = getChr();
+
         if (chr.getLevel() < ZAKUM_MIN_LEVEL) {
             debug("Below Zakum level requirement.");
             enterPhase(Phase.FINISHED);
@@ -130,18 +131,15 @@ public class ZakumBot extends BotSM {
             return;
         }
 
-        // Zakum bots should always stage at The Door to Zakum.
         if (chr.getMapId() != ZAKUM_DOOR_MAP) {
-            debug("Moving to Zakum waiting area: " + ZAKUM_DOOR_MAP);
             beginTravelTo(ZAKUM_DOOR_MAP);
             enterPhase(Phase.TRAVELING_TO_ZAKUM);
             return;
         }
 
-        debug("At Zakum waiting area. Awaiting party invitation.");
+        debug("At Zakum door. Waiting for party invitation.");
         enterPhase(Phase.WAITING_FOR_PARTY);
-    }
-    private void doWaitingForParty() {
+    }    private void doWaitingForParty() {
         Character chr = getChr();
 
         if (chr.getMapId() != ZAKUM_DOOR_MAP) {
@@ -177,11 +175,13 @@ public class ZakumBot extends BotSM {
             return;
         }
 
-        debug("Following party leader " + leader.getName()
+        debug("Party joined. Following leader " + leader.getName()
                 + " to Zakum altar entrance.");
 
         enterPhase(Phase.WAITING_FOR_EXPEDITION);
-    }    private Character findRealPartyMember() {
+    }
+
+    private Character findRealPartyMember() {
         Character chr = getChr();
         Party party = chr.getParty();
         if (party == null) return null;
@@ -292,6 +292,8 @@ public class ZakumBot extends BotSM {
             sayRecruit("ExpeditionJoined", leader);
 
             debug("Successfully joined Zakum expedition.");
+
+            enterPhase(Phase.TRAVELING_TO_ZAKUM);
         } else {
             debug("Zakum expedition registration failed. Result=" + result);
         }
