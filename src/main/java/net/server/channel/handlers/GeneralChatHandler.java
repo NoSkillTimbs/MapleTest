@@ -34,6 +34,7 @@ import soloMapling.ArtificialPlayer.BotBuffRequestSystem.BotBuffRequestHandler;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.ChatMessage;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.MessageQueue;
 import tools.PacketCreator;
+import soloMapling.ArtificialPlayer.FishingLevelsHandler;
 
 public final class GeneralChatHandler extends AbstractPacketHandler {
     private static final Logger log = LoggerFactory.getLogger(GeneralChatHandler.class);
@@ -62,9 +63,15 @@ public final class GeneralChatHandler extends AbstractPacketHandler {
                 return;
             }
 
-            MessageQueue.getInstance().addMessage("primary", new ChatMessage(c.getPlayer(), s)); // SM NOTE Allows player to interact with bots.
+            MessageQueue.getInstance().addMessage(
+                    "primary",
+                    new ChatMessage(c.getPlayer(), s)
+            );
 
-            BotBuffRequestHandler.tryHandle(chr, s); // SM: "hs pls" etc -> nearest eligible bot grants the buff
+            BotBuffRequestHandler.tryHandle(chr, s);
+
+// Fishing levels bot interaction
+            FishingLevelsHandler.handleChat(chr, s);
 
             if (!chr.isHidden()) {
                 chr.getMap().broadcastMessage(PacketCreator.getChatText(chr.getId(), s, chr.getWhiteChat(), show));

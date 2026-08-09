@@ -1,17 +1,16 @@
 package soloMapling.ArtificialPlayer;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
-
 import client.Character;
 import com.esotericsoftware.yamlbeans.YamlReader;
 import soloMapling.ArtificialPlayer.BotTypes.DiceBot;
 
-import java.util.Map;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotDialogue;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotEmote;
@@ -19,54 +18,71 @@ import static soloMapling.server.SoloMaplingUtilities.random;
 
 public class BotDialogueHandler {
 
+    private static final int CONTEXT_REROLLS = 6;
+    public static final double CONTEXT_LINE_CHANCE = 0.20;
+
     private Character chr;
 
     public static class DialogueConstructor {
         private List<String> dialogue;
-        private final List<Integer> emotes;             // node-level emote palette (random pick)
-        private final List<List<Integer>> lineEmotes;   // per-line override, aligned to dialogue; entry null = use palette
+        private final List<Integer> emotes;
+        private final List<List<Integer>> lineEmotes;
         private final long duration;
 
-        public DialogueConstructor(List<String> dialogue, List<Integer> emotes, long duration) {
+        public DialogueConstructor(
+                List<String> dialogue,
+                List<Integer> emotes,
+                long duration) {
+
             this(dialogue, emotes, null, duration);
         }
 
-        public DialogueConstructor(List<String> dialogue, List<Integer> emotes, List<List<Integer>> lineEmotes, long duration) {
+        public DialogueConstructor(
+                List<String> dialogue,
+                List<Integer> emotes,
+                List<List<Integer>> lineEmotes,
+                long duration) {
+
             this.dialogue = dialogue;
             this.emotes = emotes;
             this.lineEmotes = lineEmotes;
             this.duration = duration;
         }
 
-        private void setDialogue(List<String> newDialogue) {
-            this.dialogue = newDialogue;
+        private void setDialogue(List<String> dialogue) {
+            this.dialogue = dialogue;
         }
 
         public List<String> getDialogue() {
-            return this.dialogue;
+            return dialogue;
         }
 
-        public String getDialogue(int i) {
-            return getDialogue().get(i);
+        public String getDialogue(int index) {
+            return dialogue.get(index);
         }
 
-        // Random emote from the node-level palette. Independent of which line was chosen.
         public Integer getEmote() {
             if (emotes == null || emotes.isEmpty()) {
                 return 0;
             }
+
             return emotes.get(random.nextInt(emotes.size()));
         }
 
-        // Emote tied to a specific line: its tagged override (random pick if a list),
-        // falling back to the node-level palette when the line has no override.
-        public Integer getEmoteForIndex(int i) {
-            if (lineEmotes != null && i >= 0 && i < lineEmotes.size()) {
-                List<Integer> override = lineEmotes.get(i);
+        public Integer getEmoteForIndex(int index) {
+            if (lineEmotes != null
+                    && index >= 0
+                    && index < lineEmotes.size()) {
+
+                List<Integer> override = lineEmotes.get(index);
+
                 if (override != null && !override.isEmpty()) {
-                    return override.get(random.nextInt(override.size()));
+                    return override.get(
+                            random.nextInt(override.size())
+                    );
                 }
             }
+
             return getEmote();
         }
 
@@ -75,7 +91,7 @@ public class BotDialogueHandler {
         }
 
         private long getDuration() {
-            return this.duration;
+            return duration;
         }
     }
 
@@ -83,375 +99,730 @@ public class BotDialogueHandler {
         this.chr = chr;
     }
 
-    public void executeBotFlavorDialogue(String DialogueNodeName, BotSM botSM) {
-        runBotFlavorDialogue(botSM.getChr(), getDialogueCon(botSM.dialoguePath, botSM.botType, DialogueNodeName));
+    public void executeBotFlavorDialogue(
+            String dialogueNodeName,
+            BotSM botSM) {
+
+        runBotFlavorDialogue(
+                botSM.getChr(),
+                getDialogueCon(
+                        botSM.dialoguePath,
+                        botSM.botType,
+                        dialogueNodeName
+                )
+        );
     }
 
-    // Like flavor dialogue, but lines may contain {TOKEN} placeholders resolved from the bot's live
-    // game-state (see DialogueContextResolver). A line whose tokens can't resolve is skipped, falling
-    // back to a plain (token-free) line, so a raw token never reaches chat.
-    public void executeBotContextDialogue(String DialogueNodeName, BotSM botSM) {
-        runBotContextFlavorDialogue(botSM.getChr(), getDialogueCon(botSM.dialoguePath, botSM.botType, DialogueNodeName));
+    public void executeBotContextDialogue(
+            String dialogueNodeName,
+            BotSM botSM) {
+
+        runBotContextFlavorDialogue(
+                botSM.getChr(),
+                getDialogueCon(
+                        botSM.dialoguePath,
+                        botSM.botType,
+                        dialogueNodeName
+                )
+        );
     }
 
-    // As above, but lines may also reference a player via {PLAYER_*} tokens (level, class, fame,
-    // gear, pet, guild, ...). Pass the player the bot is reacting to.
-    public void executeBotContextDialogue(String DialogueNodeName, BotSM botSM, Character player) {
-        runBotContextFlavorDialogue(botSM.getChr(), getDialogueCon(botSM.dialoguePath, botSM.botType, DialogueNodeName), player);
+    public void executeBotContextDialogue(
+            String dialogueNodeName,
+            BotSM botSM,
+            Character player) {
+
+        runBotContextFlavorDialogue(
+                botSM.getChr(),
+                getDialogueCon(
+                        botSM.dialoguePath,
+                        botSM.botType,
+                        dialogueNodeName
+                ),
+                player
+        );
     }
 
-    // As above, but biases line selection: context ({TOKEN}-carrying) lines are only drawn
-    // contextChance of the time, plain lines the rest. Keeps the flavor without leaning on the
-    // {PLAYER_*}/{MAP}/... templated lines for the bulk of chatter.
-    public void executeBotContextDialogue(String DialogueNodeName, BotSM botSM, Character player, double contextChance) {
-        runBotContextFlavorDialogue(botSM.getChr(), getDialogueCon(botSM.dialoguePath, botSM.botType, DialogueNodeName), player, contextChance);
+    public void executeBotContextDialogue(
+            String dialogueNodeName,
+            BotSM botSM,
+            Character player,
+            double contextChance) {
+
+        runBotContextFlavorDialogue(
+                botSM.getChr(),
+                getDialogueCon(
+                        botSM.dialoguePath,
+                        botSM.botType,
+                        dialogueNodeName
+                ),
+                player,
+                contextChance
+        );
     }
 
-    public void executeBotDialogueWithReplacementStrings(String DialogueNodeName, Map<String, String> replacements, BotSM botSM) {
-        runBotDialogue(botSM.getChr(), getDialogueConWithReplacedStrings(botSM.dialoguePath, botSM.botType, DialogueNodeName, replacements));
+    public void executeBotDialogueWithReplacementStrings(
+            String dialogueNodeName,
+            Map<String, String> replacements,
+            BotSM botSM) {
+
+        runBotDialogue(
+                botSM.getChr(),
+                getDialogueConWithReplacedStrings(
+                        botSM.dialoguePath,
+                        botSM.botType,
+                        dialogueNodeName,
+                        replacements
+                )
+        );
     }
 
-    public void executeBotDialogue(String DialogueNodeName, BotSM botSM) {
-        runBotDialogue(botSM.getChr(), getDialogueCon(botSM.dialoguePath, botSM.botType, DialogueNodeName));
+    public void executeBotDialogue(
+            String dialogueNodeName,
+            BotSM botSM) {
+
+        runBotDialogue(
+                botSM.getChr(),
+                getDialogueCon(
+                        botSM.dialoguePath,
+                        botSM.botType,
+                        dialogueNodeName
+                )
+        );
     }
 
     public void listOptions(Character player, BotSM botSM) {
-        // Check if the instance is of type DiceBot
         if (botSM instanceof DiceBot) {
-            System.out.println("Dice bot instance");
-            DiceBot diceBot = (DiceBot) botSM; // Downcast to DiceBot
-            diceBot.displayCommands(player);   // Now you can call DiceBot methods
+            ((DiceBot) botSM).displayCommands(player);
         } else {
-            System.out.println("Not a DiceBot instance");
             botSM.displayCommands(player);
         }
-
     }
 
-    public static Map<String, Object> readDialogueYaml(String dialoguePack, String dialogueType, String dialogueNode) {
-        String dialoguePackBase = "src/main/java/soloMapling/ArtificialPlayer/BotDialoguePack/";
-        String filePath = String.format("%s%s", dialoguePackBase, dialoguePack);
+    public static Map<String, Object> readDialogueYaml(
+            String dialoguePack,
+            String dialogueType,
+            String dialogueNode) {
 
-        try {
-            YamlReader reader = new YamlReader(new FileReader(filePath));
+        String basePath =
+                "src/main/java/soloMapling/ArtificialPlayer/BotDialoguePack/";
 
-            Map<String, Object> root = (Map<String, Object>) reader.read();
+        String filePath = basePath + dialoguePack;
 
-            System.out.println(
-                    "[BOT DIALOGUE DEBUG] "
-                            + "file=" + filePath
-                            + " botType=" + dialogueType
-                            + " node=" + dialogueNode
-                            + " rootKeys=" + (root != null ? root.keySet() : "NULL")
-            );
+        try (FileReader fileReader = new FileReader(filePath)) {
+            YamlReader reader = new YamlReader(fileReader);
+
+            Map<String, Object> root =
+                    (Map<String, Object>) reader.read();
 
             if (root == null) {
-                System.err.println(
-                        "[BOT DIALOGUE ERROR] YAML root is NULL: "
-                                + filePath
-                );
                 return null;
             }
 
-            Object rawBotTypeNode = root.get(dialogueType);
+            Object rawBotType = root.get(dialogueType);
 
-            if (!(rawBotTypeNode instanceof Map)) {
-                System.err.println(
-                        "[BOT DIALOGUE ERROR] Bot type not found in YAML. "
-                                + "requestedType=" + dialogueType
-                                + " availableTypes=" + root.keySet()
-                                + " file=" + filePath
-                );
+            if (!(rawBotType instanceof Map)) {
                 return null;
             }
 
-            Map<String, Object> botTypeNode = (Map<String, Object>) rawBotTypeNode;
+            Map<String, Object> botTypeNode =
+                    (Map<String, Object>) rawBotType;
 
-            Object rawDialogueNode = botTypeNode.get(dialogueNode);
+            Object rawDialogueNode =
+                    botTypeNode.get(dialogueNode);
 
             if (!(rawDialogueNode instanceof Map)) {
-                System.err.println(
-                        "[BOT DIALOGUE ERROR] Dialogue node not found. "
-                                + "botType=" + dialogueType
-                                + " requestedNode=" + dialogueNode
-                                + " availableNodes=" + botTypeNode.keySet()
-                                + " file=" + filePath
-                );
                 return null;
             }
 
             return (Map<String, Object>) rawDialogueNode;
 
-        } catch (IOException e) {
-            System.err.println(
-                    "[BOT DIALOGUE ERROR] Failed to read YAML: "
-                            + filePath
-            );
-            e.printStackTrace();
+        } catch (IOException | RuntimeException e) {
             return null;
         }
     }
 
-    public static DialogueConstructor getDialogueCon(String BotTypeDialoguePath, String BotType, String DialogueNodeName) {
-        Map<String, Object> dialogMap = readDialogueYaml(BotTypeDialoguePath, BotType, DialogueNodeName);
+    public static DialogueConstructor getDialogueCon(
+            String botTypeDialoguePath,
+            String botType,
+            String dialogueNodeName) {
+
+        Map<String, Object> dialogMap =
+                readDialogueYaml(
+                        botTypeDialoguePath,
+                        botType,
+                        dialogueNodeName
+                );
+
         if (dialogMap == null) {
             return null;
         }
+
         List<String> textList = new ArrayList<>();
         List<List<Integer>> lineEmotes = new ArrayList<>();
-        boolean anyLineEmote = parseTextEntries(dialogMap.get("text"), textList, lineEmotes);
-        List<Integer> emotes = parseEmotes(dialogMap.get("emote"));
-        long duration = (convertToInt(dialogMap.get("wait")) * 1000); // milliseconds
-        return new DialogueConstructor(textList, emotes, anyLineEmote ? lineEmotes : null, duration);
+
+        boolean hasLineEmotes =
+                parseTextEntries(
+                        dialogMap.get("text"),
+                        textList,
+                        lineEmotes
+                );
+
+        List<Integer> emotes =
+                parseEmotes(dialogMap.get("emote"));
+
+        long duration =
+                convertToInt(dialogMap.get("wait")) * 1000L;
+
+        return new DialogueConstructor(
+                textList,
+                emotes,
+                hasLineEmotes ? lineEmotes : null,
+                duration
+        );
     }
 
-    // A node's "text" entry is either a plain string (uses the node-level emote palette)
-    // or a map {line/text, emote} carrying its own targeted emote(s). Fills textOut and
-    // emotesOut aligned by index (a null emote entry means "no override, use the palette").
-    // Returns true if any entry supplied an override, so plain-string nodes skip the per-line path.
-    private static boolean parseTextEntries(Object raw, List<String> textOut, List<List<Integer>> emotesOut) {
-        boolean any = false;
-        if (raw instanceof List) {
-            for (Object entry : (List<?>) raw) {
-                if (entry instanceof Map) {
-                    Map<?, ?> m = (Map<?, ?>) entry;
-                    Object lineVal = m.containsKey("line") ? m.get("line") : m.get("text");
-                    textOut.add(lineVal == null ? "" : lineVal.toString());
-                    if (m.get("emote") != null) {
-                        emotesOut.add(parseEmotes(m.get("emote")));
-                        any = true;
-                    } else {
-                        emotesOut.add(null);
-                    }
+    private static boolean parseTextEntries(
+            Object raw,
+            List<String> textOut,
+            List<List<Integer>> emotesOut) {
+
+        if (!(raw instanceof List)) {
+            return false;
+        }
+
+        boolean hasOverrides = false;
+
+        for (Object entry : (List<?>) raw) {
+            if (entry instanceof Map) {
+                Map<?, ?> map = (Map<?, ?>) entry;
+
+                Object line =
+                        map.containsKey("line")
+                                ? map.get("line")
+                                : map.get("text");
+
+                textOut.add(
+                        line == null
+                                ? ""
+                                : line.toString()
+                );
+
+                Object emote = map.get("emote");
+
+                if (emote != null) {
+                    emotesOut.add(parseEmotes(emote));
+                    hasOverrides = true;
                 } else {
-                    textOut.add(entry == null ? "" : entry.toString());
                     emotesOut.add(null);
                 }
+
+            } else {
+                textOut.add(
+                        entry == null
+                                ? ""
+                                : entry.toString()
+                );
+
+                emotesOut.add(null);
             }
         }
-        return any;
+
+        return hasOverrides;
     }
 
     public static DialogueConstructor getDialogueConWithReplacedStrings(
-            String BotTypeDialoguePath,
-            String BotType,
-            String DialogueNodeName,
+            String botTypeDialoguePath,
+            String botType,
+            String dialogueNodeName,
             Map<String, String> replacements) {
 
-        DialogueConstructor og = getDialogueCon(
-                BotTypeDialoguePath,
-                BotType,
-                DialogueNodeName
+        DialogueConstructor dialogue =
+                getDialogueCon(
+                        botTypeDialoguePath,
+                        botType,
+                        dialogueNodeName
+                );
+
+        if (dialogue == null) {
+            return null;
+        }
+
+        dialogue.setDialogue(
+                replaceStrings(
+                        dialogue.getDialogue(),
+                        replacements
+                )
         );
 
-        if (og == null) {
-            return null;
-        }
-
-        og.setDialogue(replaceStrings(og.getDialogue(), replacements));
-        return og;
+        return dialogue;
     }
 
-    public static List<String> replaceStrings(List<String> inputList, Map<String, String> replacements) {
+    public static List<String> replaceStrings(
+            List<String> inputList,
+            Map<String, String> replacements) {
+
         if (inputList == null || replacements == null) {
-            throw new IllegalArgumentException("Input list and replacements map cannot be null");
+            throw new IllegalArgumentException(
+                    "Input list and replacements map cannot be null"
+            );
         }
 
-        List<String> resultList = new ArrayList<>();
-        for (String str : inputList) {
-            String modifiedStr = str;
-            // Replace all keys in the map with their corresponding values
-            for (Map.Entry<String, String> entry : replacements.entrySet()) {
-                modifiedStr = modifiedStr.replace(entry.getKey(), entry.getValue());
+        List<String> result = new ArrayList<>(
+                inputList.size()
+        );
+
+        for (String text : inputList) {
+            String replaced = text;
+
+            for (Map.Entry<String, String> entry
+                    : replacements.entrySet()) {
+
+                replaced = replaced.replace(
+                        entry.getKey(),
+                        entry.getValue()
+                );
             }
-            resultList.add(modifiedStr);
+
+            result.add(replaced);
         }
-        return resultList;
+
+        return result;
     }
 
-    public static String getRandomDialogueLine(BotSM botSM, String DialogueNodeName) {
-        DialogueConstructor dialog = getDialogueCon(botSM.dialoguePath, botSM.botType, DialogueNodeName);
-        return dialog.getDialogue().get(random.nextInt(dialog.getDialogue().size()));
-    }
+    public static String getRandomDialogueLine(
+            BotSM botSM,
+            String dialogueNodeName) {
 
-    // Picks a random line from a node and resolves any {TOKEN}s against the speaking bot (self) and
-    // an optional player. Re-rolls lines whose tokens can't resolve (bounded), then falls back to a
-    // token-free line — same policy as runBotContextFlavorDialogue — so a raw {TOKEN} never reaches
-    // chat. Returns null when the node is missing/empty or nothing resolvable remains (caller stays
-    // silent). Use this instead of getRandomDialogueLine for any node that may carry context tokens.
-    public static String getRandomResolvedLine(BotSM botSM, String node) {
-        return getRandomResolvedLine(botSM, node, null);
-    }
+        DialogueConstructor dialogue =
+                getDialogueCon(
+                        botSM.dialoguePath,
+                        botSM.botType,
+                        dialogueNodeName
+                );
 
-    public static String getRandomResolvedLine(BotSM botSM, String node, Character player) {
-        return getRandomResolvedLine(botSM.dialoguePath, botSM.botType, node, botSM.getChr(), player);
-    }
-
-    public static String getRandomResolvedLine(String dialoguePath, String botType, String node, Character speaker, Character player) {
-        DialogueConstructor dialog = getDialogueCon(dialoguePath, botType, node);
-        if (dialog == null || dialog.getDialogue().isEmpty()) {
+        if (dialogue == null
+                || dialogue.getDialogue().isEmpty()) {
             return null;
         }
-        List<String> lines = dialog.getDialogue();
-        int n = lines.size();
-        int tries = Math.min(CONTEXT_REROLLS, n);
+
+        List<String> lines = dialogue.getDialogue();
+
+        return lines.get(
+                random.nextInt(lines.size())
+        );
+    }
+
+    public static String getRandomResolvedLine(
+            BotSM botSM,
+            String node) {
+
+        return getRandomResolvedLine(
+                botSM,
+                node,
+                null
+        );
+    }
+
+    public static String getRandomResolvedLine(
+            BotSM botSM,
+            String node,
+            Character player) {
+
+        return getRandomResolvedLine(
+                botSM.dialoguePath,
+                botSM.botType,
+                node,
+                botSM.getChr(),
+                player
+        );
+    }
+
+    public static String getRandomResolvedLine(
+            String dialoguePath,
+            String botType,
+            String node,
+            Character speaker,
+            Character player) {
+
+        DialogueConstructor dialogue =
+                getDialogueCon(
+                        dialoguePath,
+                        botType,
+                        node
+                );
+
+        if (dialogue == null
+                || dialogue.getDialogue().isEmpty()) {
+            return null;
+        }
+
+        List<String> lines =
+                dialogue.getDialogue();
+
+        int tries =
+                Math.min(
+                        CONTEXT_REROLLS,
+                        lines.size()
+                );
+
         for (int attempt = 0; attempt < tries; attempt++) {
-            String raw = lines.get(random.nextInt(n));
-            if (!DialogueContextResolver.hasTokens(raw)) {
-                return raw;
-            }
-            Optional<String> filled = DialogueContextResolver.fill(raw, speaker, player);
-            if (filled.isPresent()) {
-                return filled.get();
+            String raw =
+                    lines.get(
+                            random.nextInt(lines.size())
+                    );
+
+            Optional<String> resolved =
+                    resolveLine(
+                            raw,
+                            speaker,
+                            player
+                    );
+
+            if (resolved.isPresent()) {
+                return resolved.get();
             }
         }
+
         for (String line : lines) {
             if (!DialogueContextResolver.hasTokens(line)) {
                 return line;
             }
         }
+
         return null;
     }
 
-    public static void runBotDialogue(Character character, DialogueConstructor dialog) {
-        if (dialog == null) {
+    public static void runBotDialogue(
+            Character character,
+            DialogueConstructor dialogue) {
+
+        if (dialogue == null) {
             return;
         }
-        runDialogue(character, dialog, dialog.getDialogue(), dialog.getEmote());
+
+        runDialogue(
+                character,
+                dialogue,
+                dialogue.getDialogue(),
+                dialogue.getEmote()
+        );
     }
 
-    public static void runBotFlavorDialogue(Character character, DialogueConstructor dialog) {
-        if (dialog == null || dialog.getDialogue().isEmpty()) {
+    public static void runBotFlavorDialogue(
+            Character character,
+            DialogueConstructor dialogue) {
+
+        if (dialogue == null
+                || dialogue.getDialogue().isEmpty()) {
             return;
         }
-        int idx = random.nextInt(dialog.getDialogue().size());
-        String randomText = dialog.getDialogue().get(idx);
-        runDialogue(character, dialog, Collections.singletonList(randomText), dialog.getEmoteForIndex(idx));
+
+        int index =
+                random.nextInt(
+                        dialogue.getDialogue().size()
+                );
+
+        runDialogue(
+                character,
+                dialogue,
+                Collections.singletonList(
+                        dialogue.getDialogue().get(index)
+                ),
+                dialogue.getEmoteForIndex(index)
+        );
     }
 
-    private static final int CONTEXT_REROLLS = 6;
+    public static void runBotContextFlavorDialogue(
+            Character character,
+            DialogueConstructor dialogue) {
 
-    public static void runBotContextFlavorDialogue(Character character, DialogueConstructor dialog) {
-        runBotContextFlavorDialogue(character, dialog, null);
+        runBotContextFlavorDialogue(
+                character,
+                dialogue,
+                null
+        );
     }
 
-    // Rolls a line; if it carries {TOKEN}s, resolves them from the bot's context (and the given
-    // player, if any). Lines that can't resolve are re-rolled (bounded), then we fall back to a
-    // plain token-free line so a raw token never leaks. If nothing resolves and there is no plain
-    // line, the bot simply stays silent.
-    public static void runBotContextFlavorDialogue(Character character, DialogueConstructor dialog, Character player) {
-        if (dialog == null || dialog.getDialogue().isEmpty()) {
+    public static void runBotContextFlavorDialogue(
+            Character character,
+            DialogueConstructor dialogue,
+            Character player) {
+
+        if (dialogue == null
+                || dialogue.getDialogue().isEmpty()) {
             return;
         }
-        List<String> lines = dialog.getDialogue();
-        int n = lines.size();
-        int tries = Math.min(CONTEXT_REROLLS, n);
+
+        List<String> lines =
+                dialogue.getDialogue();
+
+        int tries =
+                Math.min(
+                        CONTEXT_REROLLS,
+                        lines.size()
+                );
+
         for (int attempt = 0; attempt < tries; attempt++) {
-            int idx = random.nextInt(n);
-            String raw = lines.get(idx);
-            if (!DialogueContextResolver.hasTokens(raw)) {
-                runDialogue(character, dialog, Collections.singletonList(raw), dialog.getEmoteForIndex(idx));
-                return;
-            }
-            Optional<String> filled = DialogueContextResolver.fill(raw, character, player);
-            if (filled.isPresent()) {
-                runDialogue(character, dialog, Collections.singletonList(filled.get()), dialog.getEmoteForIndex(idx));
+            int index =
+                    random.nextInt(lines.size());
+
+            Optional<String> resolved =
+                    resolveLine(
+                            lines.get(index),
+                            character,
+                            player
+                    );
+
+            if (resolved.isPresent()) {
+                runDialogue(
+                        character,
+                        dialogue,
+                        Collections.singletonList(
+                                resolved.get()
+                        ),
+                        dialogue.getEmoteForIndex(index)
+                );
+
                 return;
             }
         }
-        for (int i = 0; i < n; i++) {
-            if (!DialogueContextResolver.hasTokens(lines.get(i))) {
-                runDialogue(character, dialog, Collections.singletonList(lines.get(i)), dialog.getEmoteForIndex(i));
+
+        for (int index = 0; index < lines.size(); index++) {
+            String line = lines.get(index);
+
+            if (!DialogueContextResolver.hasTokens(line)) {
+                runDialogue(
+                        character,
+                        dialogue,
+                        Collections.singletonList(line),
+                        dialogue.getEmoteForIndex(index)
+                );
+
                 return;
             }
         }
     }
 
-    // Default share of chatter drawn from context ({TOKEN}) lines vs plain lines (the rest).
-    public static final double CONTEXT_LINE_CHANCE = 0.20;
+    public static void runBotContextFlavorDialogue(
+            Character character,
+            DialogueConstructor dialogue,
+            Character player,
+            double contextChance) {
 
-    // Weighted variant of runBotContextFlavorDialogue: picks from the context ({TOKEN}-carrying)
-    // lines only contextChance of the time and plain lines otherwise, then falls back to the other
-    // pool if the preferred one yields nothing speakable. Same token-resolution + no-leak policy.
-    public static void runBotContextFlavorDialogue(Character character, DialogueConstructor dialog, Character player, double contextChance) {
-        if (dialog == null || dialog.getDialogue().isEmpty()) {
+        if (dialogue == null
+                || dialogue.getDialogue().isEmpty()) {
             return;
         }
-        List<String> lines = dialog.getDialogue();
-        List<Integer> contextLines = new ArrayList<>();
-        List<Integer> plainLines = new ArrayList<>();
+
+        List<String> lines =
+                dialogue.getDialogue();
+
+        List<Integer> contextLines =
+                new ArrayList<>();
+
+        List<Integer> plainLines =
+                new ArrayList<>();
+
         for (int i = 0; i < lines.size(); i++) {
-            (DialogueContextResolver.hasTokens(lines.get(i)) ? contextLines : plainLines).add(i);
+            if (DialogueContextResolver.hasTokens(lines.get(i))) {
+                contextLines.add(i);
+            } else {
+                plainLines.add(i);
+            }
         }
-        boolean preferContext = random.nextDouble() < contextChance;
-        List<Integer> first = preferContext ? contextLines : plainLines;
-        List<Integer> second = preferContext ? plainLines : contextLines;
-        if (emitOneFrom(character, dialog, lines, first, player)) {
+
+        boolean preferContext =
+                random.nextDouble() < contextChance;
+
+        List<Integer> preferred =
+                preferContext
+                        ? contextLines
+                        : plainLines;
+
+        List<Integer> fallback =
+                preferContext
+                        ? plainLines
+                        : contextLines;
+
+        if (emitOneFrom(
+                character,
+                dialogue,
+                lines,
+                preferred,
+                player)) {
             return;
         }
-        emitOneFrom(character, dialog, lines, second, player);
+
+        emitOneFrom(
+                character,
+                dialogue,
+                lines,
+                fallback,
+                player
+        );
     }
 
-    // Tries (bounded re-rolls) to speak one line from the given index pool, resolving any tokens.
-    // Returns true once a line is spoken, false if the pool is empty or nothing resolved.
-    private static boolean emitOneFrom(Character character, DialogueConstructor dialog,
-                                       List<String> lines, List<Integer> pool, Character player) {
-        if (pool.isEmpty()) {
+    private static boolean emitOneFrom(
+            Character character,
+            DialogueConstructor dialogue,
+            List<String> lines,
+            List<Integer> pool,
+            Character player) {
+
+        if (pool == null || pool.isEmpty()) {
             return false;
         }
-        int tries = Math.min(CONTEXT_REROLLS, pool.size());
+
+        int tries =
+                Math.min(
+                        CONTEXT_REROLLS,
+                        pool.size()
+                );
+
         for (int attempt = 0; attempt < tries; attempt++) {
-            int idx = pool.get(random.nextInt(pool.size()));
-            String raw = lines.get(idx);
-            if (!DialogueContextResolver.hasTokens(raw)) {
-                runDialogue(character, dialog, Collections.singletonList(raw), dialog.getEmoteForIndex(idx));
-                return true;
+            int index =
+                    pool.get(
+                            random.nextInt(pool.size())
+                    );
+
+            Optional<String> resolved =
+                    resolveLine(
+                            lines.get(index),
+                            character,
+                            player
+                    );
+
+            if (!resolved.isPresent()) {
+                continue;
             }
-            Optional<String> filled = DialogueContextResolver.fill(raw, character, player);
-            if (filled.isPresent()) {
-                runDialogue(character, dialog, Collections.singletonList(filled.get()), dialog.getEmoteForIndex(idx));
-                return true;
-            }
+
+            runDialogue(
+                    character,
+                    dialogue,
+                    Collections.singletonList(
+                            resolved.get()
+                    ),
+                    dialogue.getEmoteForIndex(index)
+            );
+
+            return true;
         }
+
+        for (Integer index : pool) {
+            if (index == null
+                    || index < 0
+                    || index >= lines.size()) {
+                continue;
+            }
+
+            Optional<String> resolved =
+                    resolveLine(
+                            lines.get(index),
+                            character,
+                            player
+                    );
+
+            if (!resolved.isPresent()) {
+                continue;
+            }
+
+            runDialogue(
+                    character,
+                    dialogue,
+                    Collections.singletonList(
+                            resolved.get()
+                    ),
+                    dialogue.getEmoteForIndex(index)
+            );
+
+            return true;
+        }
+
         return false;
     }
 
-    // Deliberate synchronous choreography (the canonical case): blocks for the
-    // YAML-configured duration so executeBotDialogue* callers stay sequential.
-    private static void runDialogue(Character character, DialogueConstructor dialog, List<String> textToShow, int emote) {
-        if (dialog == null) {
+    private static Optional<String> resolveLine(
+            String line,
+            Character speaker,
+            Character player) {
+
+        if (line == null) {
+            return Optional.empty();
+        }
+
+        if (!DialogueContextResolver.hasTokens(line)) {
+            return Optional.of(line);
+        }
+
+        return DialogueContextResolver.fill(
+                line,
+                speaker,
+                player
+        );
+    }
+
+    private static void runDialogue(
+            Character character,
+            DialogueConstructor dialogue,
+            List<String> textToShow,
+            int emote) {
+
+        if (dialogue == null
+                || textToShow == null
+                || textToShow.isEmpty()) {
             return;
         }
-        BotDialogue(character, textToShow);
-        BotEmote(character, emote);
-        BotHelpers.blockingSleep(dialog.getDuration());
+
+        BotDialogue(
+                character,
+                textToShow
+        );
+
+        BotEmote(
+                character,
+                emote
+        );
+
+        BotHelpers.blockingSleep(
+                dialogue.getDuration()
+        );
     }
 
-    private static List<Integer> parseEmotes(Object obj) {
-        if (obj instanceof List) {
-            List<?> rawList = (List<?>) obj;
-            List<Integer> emotes = new ArrayList<>();
-            for (Object item : rawList) {
-                emotes.add(convertToInt(item));
+    private static List<Integer> parseEmotes(Object value) {
+        if (value instanceof List) {
+            List<Integer> result =
+                    new ArrayList<>();
+
+            for (Object item : (List<?>) value) {
+                result.add(
+                        convertToInt(item)
+                );
             }
-            return emotes;
+
+            return result;
         }
-        return Collections.singletonList(convertToInt(obj));
+
+        return Collections.singletonList(
+                convertToInt(value)
+        );
     }
 
-    private static Integer convertToInt(Object obj) {
-        if (obj instanceof Integer) {
-            return (Integer) obj;  // Directly cast if it's already an Integer
-        } else if (obj instanceof Long) {
-            return ((Long) obj).intValue();  // Convert Long to int
-        } else if (obj instanceof String) {
+    private static int convertToInt(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+
+        if (value instanceof String) {
             try {
-                return Integer.parseInt((String) obj);  // Convert String to int
-            } catch (NumberFormatException e) {
-                System.err.println("Error converting String to int: " + obj);
+                return Integer.parseInt(
+                        (String) value
+                );
+            } catch (NumberFormatException ignored) {
             }
         }
-        return 0;  // Default value if unable to convert
+
+        return 0;
     }
-    
 }
+

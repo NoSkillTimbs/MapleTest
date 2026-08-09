@@ -198,6 +198,7 @@ import static java.util.concurrent.TimeUnit.DAYS;
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static soloMapling.server.MapleMessengerConsole.disconnectUser;
+import client.BotClient;
 
 public class Character extends AbstractCharacterObject {
     private static final Logger log = LoggerFactory.getLogger(Character.class);
@@ -11224,6 +11225,10 @@ public class Character extends AbstractCharacterObject {
      */
     public BotTier getTier() {
         return BotTier.TierManager.getSafeTier(botTier);
+    }
+
+    public boolean isBot() {
+        return client instanceof BotClient;
     }
 
 }

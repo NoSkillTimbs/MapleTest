@@ -19,6 +19,8 @@ import soloMapling.ArtificialPlayer.DialogueContextResolver;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.server.ExecutorServiceManager;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -53,26 +55,56 @@ public class ZakumBot extends BotSM {
     private static final long TRAVEL_TIMEOUT_MS = 120_000;
     private static final long EXPEDITION_CHECK_INTERVAL_MS = 2_000;
 
-    /*
-     * Dialogue cooldowns.
-     *
-     * Combat ticks happen every 250ms, so dialogue must never be allowed
-     * to fire once per combat tick.
-     */
     private static final long RECRUIT_DIALOGUE_INTERVAL_MS = 15_000;
     private static final long COMBAT_DIALOGUE_INTERVAL_MS = 8_000;
     private static final long PLAYER_REACTION_INTERVAL_MS = 4_000;
 
-    /*
-     * Only about 10% of dialogue selections should prefer lines containing
-     * context tokens such as {PLAYER_NAME}.
-     *
-     * The dialogue handler falls back to plain lines if a contextual line
-     * cannot be resolved.
-     */
     private static final double PLAYER_CONTEXT_CHANCE = 0.10;
-
     private static final int CONTEXT_REROLLS = 6;
+
+    /*
+     * BotWanderSystem is intentionally accessed through reflection.
+     *
+     * The actual wander API was not part of the ZakumBot source, so this
+     * avoids hard-coding an unknown method signature.
+     *
+     * Supported method names:
+     *
+     * Start:
+     *   start
+     *   startWandering
+     *   startWander
+     *   wander
+     *   enable
+     *
+     * Stop:
+     *   stop
+     *   stopWandering
+     *   stopWander
+     *   disable
+     *   cancel
+     */
+    private static final String WANDER_SYSTEM_CLASS =
+            "soloMapling.ArtificialPlayer.BotWanderSystem.BotWanderSystem";
+
+    private static final String[] WANDER_START_METHODS = {
+            "start",
+            "startWandering",
+            "startWander",
+            "wander",
+            "enable"
+    };
+
+    private static final String[] WANDER_STOP_METHODS = {
+            "stop",
+            "stopWandering",
+            "stopWander",
+            "disable",
+            "cancel"
+    };
+
+    private static volatile Class<?> wanderSystemClass;
+    private static volatile boolean wanderSystemResolved = false;
 
     private static final Set<ZakumBot> ACTIVE_ZAKUM_BOTS =
             ConcurrentHashMap.newKeySet();
@@ -86,12 +118,14 @@ public class ZakumBot extends BotSM {
 
         combatTickerStarted = true;
 
-        ExecutorServiceManager.getScheduledExecutorService().scheduleAtFixedRate(
-                ZakumBot::combatTickAll,
-                COMBAT_TICK_MS,
-                COMBAT_TICK_MS,
-                TimeUnit.MILLISECONDS
-        );
+        ExecutorServiceManager
+                .getScheduledExecutorService()
+                .scheduleAtFixedRate(
+                        ZakumBot::combatTickAll,
+                        COMBAT_TICK_MS,
+                        COMBAT_TICK_MS,
+                        TimeUnit.MILLISECONDS
+                );
     }
 
     private static void combatTickAll() {
@@ -99,7 +133,10 @@ public class ZakumBot extends BotSM {
             try {
                 bot.combatTick();
             } catch (Throwable t) {
-                bot.debug("Combat ticker error: " + t.getMessage());
+                bot.debug(
+                        "Combat ticker error: "
+                                + t.getMessage()
+                );
             }
         }
     }
@@ -122,8 +159,6 @@ public class ZakumBot extends BotSM {
 
     private Expedition zakumExpedition;
 
-    private int recruitedPlayerId = -1;
-
     private boolean expeditionRegistered = false;
     private boolean zakumItemsGranted = false;
 
@@ -145,21 +180,21 @@ public class ZakumBot extends BotSM {
     private long nextPlayerReactionMs = 0L;
 
     /*
-     * Previous HP values for real party members.
-     *
-     * Key   = character ID
-     * Value = last observed HP
+     * Party HP tracking.
      */
     private final Map<Integer, Integer> previousPartyHp =
             new ConcurrentHashMap<>();
 
     /*
-     * Prevents PlayerDeath from firing repeatedly after the player has died.
-     *
-     * There is intentionally no revive mechanic here.
+     * Players already detected as dead.
      */
     private final Set<Integer> knownDeadPlayerIds =
             ConcurrentHashMap.newKeySet();
+
+    /*
+     * Prevents repeatedly starting the wander system on every update tick.
+     */
+    private volatile boolean wandering = false;
 
     public ZakumBot(Character character) {
         super(character);
@@ -195,6 +230,208 @@ public class ZakumBot extends BotSM {
         }
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * WANDERING
+     * ---------------------------------------------------------------------
+     */
+
+    private void startWandering() {
+        Character chr = getChr();
+
+        if (chr == null || chr.getMap() == null) {
+            return;
+        }
+
+        if (wandering) {
+            return;
+        }
+
+        if (phase != Phase.WAITING_FOR_PARTY
+                && phase != Phase.WAITING_FOR_EXPEDITION) {
+            return;
+        }
+
+        if (expeditionRegistered) {
+            return;
+        }
+
+        try {
+            Class<?> clazz = getWanderSystemClass();
+
+            if (clazz == null) {
+                return;
+            }
+
+            boolean invoked = invokeWanderMethod(
+                    clazz,
+                    WANDER_START_METHODS,
+                    chr
+            );
+
+            if (invoked) {
+                wandering = true;
+
+                debug(
+                        "Wander system started."
+                );
+            }
+        } catch (Throwable t) {
+            debug(
+                    "Unable to start wander system: "
+                            + t.getMessage()
+            );
+        }
+    }
+
+    private void stopWandering() {
+        Character chr = getChr();
+
+        if (!wandering && chr == null) {
+            return;
+        }
+
+        try {
+            Class<?> clazz = getWanderSystemClass();
+
+            if (clazz != null && chr != null) {
+                invokeWanderMethod(
+                        clazz,
+                        WANDER_STOP_METHODS,
+                        chr
+                );
+            }
+        } catch (Throwable t) {
+            debug(
+                    "Unable to stop wander system: "
+                            + t.getMessage()
+            );
+        } finally {
+            wandering = false;
+        }
+    }
+
+    private static Class<?> getWanderSystemClass() {
+        if (wanderSystemResolved) {
+            return wanderSystemClass;
+        }
+
+        synchronized (ZakumBot.class) {
+            if (wanderSystemResolved) {
+                return wanderSystemClass;
+            }
+
+            try {
+                wanderSystemClass =
+                        Class.forName(WANDER_SYSTEM_CLASS);
+            } catch (Throwable ignored) {
+                wanderSystemClass = null;
+            }
+
+            wanderSystemResolved = true;
+
+            return wanderSystemClass;
+        }
+    }
+
+    private boolean invokeWanderMethod(
+            Class<?> clazz,
+            String[] methodNames,
+            Character chr) {
+
+        for (String methodName : methodNames) {
+            Method method =
+                    findWanderMethod(
+                            clazz,
+                            methodName
+                    );
+
+            if (method == null) {
+                continue;
+            }
+
+            try {
+                method.setAccessible(true);
+
+                Class<?>[] parameters =
+                        method.getParameterTypes();
+
+                if (parameters.length == 1
+                        && parameters[0].isAssignableFrom(
+                        chr.getClass())) {
+
+                    method.invoke(null, chr);
+                    return true;
+                }
+
+                if (parameters.length == 1
+                        && parameters[0].isAssignableFrom(
+                        Character.class)) {
+
+                    method.invoke(null, chr);
+                    return true;
+                }
+
+                /*
+                 * Some systems expose instance methods.
+                 *
+                 * If the method is not static, do not attempt to
+                 * construct the wander system because its constructor
+                 * is unknown.
+                 */
+                if (!Modifier.isStatic(method.getModifiers())) {
+                    continue;
+                }
+            } catch (Throwable t) {
+                debug(
+                        "Wander method failed: "
+                                + methodName
+                                + " error="
+                                + t.getMessage()
+                );
+            }
+        }
+
+        return false;
+    }
+
+    private Method findWanderMethod(
+            Class<?> clazz,
+            String methodName) {
+
+        for (Method method : clazz.getMethods()) {
+            if (!method.getName().equals(methodName)) {
+                continue;
+            }
+
+            if (!Modifier.isStatic(method.getModifiers())) {
+                continue;
+            }
+
+            Class<?>[] parameters =
+                    method.getParameterTypes();
+
+            if (parameters.length != 1) {
+                continue;
+            }
+
+            if (!parameters[0].isAssignableFrom(
+                    Character.class)) {
+                continue;
+            }
+
+            return method;
+        }
+
+        return null;
+    }
+
+    /*
+     * ---------------------------------------------------------------------
+     * INITIALIZATION
+     * ---------------------------------------------------------------------
+     */
+
     private void doInit() {
         ensureCombatTicker();
 
@@ -219,6 +456,7 @@ public class ZakumBot extends BotSM {
                             + ")"
             );
 
+            stopWandering();
             enterPhase(Phase.FINISHED);
             return;
         }
@@ -229,12 +467,16 @@ public class ZakumBot extends BotSM {
         }
 
         if (chr.getMapId() != ZAKUM_DOOR_MAP) {
+            stopWandering();
+
             beginTravelTo(ZAKUM_DOOR_MAP);
             enterPhase(Phase.TRAVELING_TO_ZAKUM);
             return;
         }
 
-        debug("At Zakum door. Waiting for party invitation.");
+        debug(
+                "At Zakum door. Waiting for party invitation."
+        );
 
         enterPhase(Phase.WAITING_FOR_PARTY);
     }
@@ -252,10 +494,14 @@ public class ZakumBot extends BotSM {
 
         try {
             int currentQuantity =
-                    chr.getItemQuantity(EYE_OF_FIRE_ITEM_ID, false);
+                    chr.getItemQuantity(
+                            EYE_OF_FIRE_ITEM_ID,
+                            false
+                    );
 
             int missing =
-                    EYE_OF_FIRE_COUNT - currentQuantity;
+                    EYE_OF_FIRE_COUNT
+                            - currentQuantity;
 
             if (missing <= 0) {
                 zakumItemsGranted = true;
@@ -269,11 +515,12 @@ public class ZakumBot extends BotSM {
                 return;
             }
 
-            boolean added = InventoryManipulator.addById(
-                    chr.getClient(),
-                    EYE_OF_FIRE_ITEM_ID,
-                    (short) missing
-            );
+            boolean added =
+                    InventoryManipulator.addById(
+                            chr.getClient(),
+                            EYE_OF_FIRE_ITEM_ID,
+                            (short) missing
+                    );
 
             if (added) {
                 zakumItemsGranted = true;
@@ -301,6 +548,12 @@ public class ZakumBot extends BotSM {
         }
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * PARTY WAITING
+     * ---------------------------------------------------------------------
+     */
+
     private void doWaitingForParty() {
         Character chr = getChr();
 
@@ -311,15 +564,22 @@ public class ZakumBot extends BotSM {
         if (chr.getLevel() < ZAKUM_MIN_LEVEL
                 || chr.getLevel() > ZAKUM_MAX_LEVEL) {
 
-            debug("Zakum bot no longer within level range.");
+            stopWandering();
+
+            debug(
+                    "Zakum bot no longer within level range."
+            );
 
             enterPhase(Phase.FINISHED);
             return;
         }
 
         if (chr.getMapId() != ZAKUM_DOOR_MAP) {
+            stopWandering();
+
             debug(
-                    "Zakum bot is not at the Door to Zakum. Returning."
+                    "Zakum bot is not at the Door to Zakum. "
+                            + "Returning."
             );
 
             beginTravelTo(ZAKUM_DOOR_MAP);
@@ -329,12 +589,13 @@ public class ZakumBot extends BotSM {
         }
 
         /*
-         * The bot has no player target yet while waiting for an invite.
-         * Therefore PartyInviteWait should primarily contain plain lines.
+         * This is the important change:
          *
-         * If the YAML happens to contain {PLAYER_NAME}, the dialogue
-         * resolver will safely skip that line because player == null.
+         * While waiting for a real player to recruit the bot,
+         * the bot actively wanders instead of standing still.
          */
+        startWandering();
+
         long now = now();
 
         if (now >= nextRecruitDialogueMs) {
@@ -348,7 +609,13 @@ public class ZakumBot extends BotSM {
                     now + RECRUIT_DIALOGUE_INTERVAL_MS;
         }
 
+        /*
+         * If an invite arrived during this update cycle,
+         * immediately stop wandering.
+         */
         if (chr.getParty() != null) {
+            stopWandering();
+
             debug(
                     "Zakum bot joined party "
                             + chr.getParty().getId()
@@ -365,6 +632,8 @@ public class ZakumBot extends BotSM {
             return;
         }
 
+        stopWandering();
+
         if (chr.getParty() == null) {
             cleanupExpeditionState();
 
@@ -372,11 +641,13 @@ public class ZakumBot extends BotSM {
             return;
         }
 
-        Character leader = getRealPartyLeader();
+        Character leader =
+                getRealPartyLeader();
 
         if (leader == null) {
             debug(
-                    "Party joined, but real party leader is unavailable."
+                    "Party joined, but real party leader "
+                            + "is unavailable."
             );
 
             return;
@@ -388,7 +659,9 @@ public class ZakumBot extends BotSM {
                         + " to Zakum altar entrance."
         );
 
-        enterPhase(Phase.WAITING_FOR_EXPEDITION);
+        enterPhase(
+                Phase.WAITING_FOR_EXPEDITION
+        );
     }
 
     private Character findRealPartyMember() {
@@ -400,15 +673,19 @@ public class ZakumBot extends BotSM {
 
         Party party = chr.getParty();
 
-        for (PartyCharacter pc : party.getMembers()) {
+        for (PartyCharacter pc :
+                party.getMembers()) {
+
             if (pc == null) {
                 continue;
             }
 
-            Character player = pc.getPlayer();
+            Character player =
+                    pc.getPlayer();
 
             if (player == null
-                    || player.getId() == chr.getId()
+                    || player.getId()
+                    == chr.getId()
                     || isBot(player)
                     || !player.isLoggedinWorld()) {
                 continue;
@@ -434,10 +711,12 @@ public class ZakumBot extends BotSM {
             return null;
         }
 
-        Character leader = leaderPc.getPlayer();
+        Character leader =
+                leaderPc.getPlayer();
 
         if (leader == null
-                || leader.getId() == chr.getId()
+                || leader.getId()
+                == chr.getId()
                 || isBot(leader)
                 || !leader.isLoggedinWorld()) {
             return null;
@@ -446,20 +725,34 @@ public class ZakumBot extends BotSM {
         return leader;
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * EXPEDITION
+     * ---------------------------------------------------------------------
+     */
+
     private void doWaitingForExpedition() {
         Character chr = getChr();
 
-        if (chr == null || chr.getMap() == null) {
+        if (chr == null
+                || chr.getMap() == null) {
             return;
         }
 
         if (expeditionRegistered) {
+            stopWandering();
+
             if (isInZakumBossMap(chr)) {
                 beginFighting();
                 return;
             }
 
-            if (chr.getMapId() == ZAKUM_ALTAR_ENTRANCE_MAP) {
+            /*
+             * Once registered, the expedition owns the warp.
+             * Do not wander and do not initiate another travel.
+             */
+            if (chr.getMapId()
+                    == ZAKUM_ALTAR_ENTRANCE_MAP) {
                 return;
             }
 
@@ -473,39 +766,56 @@ public class ZakumBot extends BotSM {
         }
 
         if (chr.getParty() == null) {
+            stopWandering();
+
             cleanupExpeditionState();
 
-            enterPhase(Phase.WAITING_FOR_PARTY);
+            enterPhase(
+                    Phase.WAITING_FOR_PARTY
+            );
+
             return;
         }
 
-        Character leader = getRealPartyLeader();
+        Character leader =
+                getRealPartyLeader();
 
         if (leader == null) {
-            debug("Waiting for real party leader.");
+            /*
+             * No valid leader currently available.
+             * The bot can idle/wander safely.
+             */
+            startWandering();
             return;
         }
 
-        if (chr.getMapId() != ZAKUM_ALTAR_ENTRANCE_MAP) {
-            if (leader.getMapId()
-                    == ZAKUM_ALTAR_ENTRANCE_MAP) {
+        if (chr.getMapId()
+                != ZAKUM_ALTAR_ENTRANCE_MAP) {
 
-                debug(
-                        "Leader reached Zakum altar entrance. Following."
-                );
-            } else {
-                debug(
-                        "Following leader "
-                                + leader.getName()
-                                + " to Zakum altar entrance."
-                );
-            }
+            stopWandering();
 
-            beginTravelTo(ZAKUM_ALTAR_ENTRANCE_MAP);
+            debug(
+                    "Following leader "
+                            + leader.getName()
+                            + " to Zakum altar entrance."
+            );
 
-            enterPhase(Phase.TRAVELING_TO_ZAKUM);
+            beginTravelTo(
+                    ZAKUM_ALTAR_ENTRANCE_MAP
+            );
+
+            enterPhase(
+                    Phase.TRAVELING_TO_ZAKUM
+            );
+
             return;
         }
+
+        /*
+         * At the altar, waiting for expedition registration.
+         * Wandering is allowed here until registration succeeds.
+         */
+        startWandering();
 
         long now = now();
 
@@ -517,47 +827,62 @@ public class ZakumBot extends BotSM {
                 now + EXPEDITION_CHECK_INTERVAL_MS;
 
         if (leader.getClient() == null
-                || leader.getClient().getChannelServer() == null) {
+                || leader.getClient()
+                .getChannelServer() == null) {
             return;
         }
 
         Expedition expedition =
                 leader.getClient()
                         .getChannelServer()
-                        .getExpedition(ExpeditionType.ZAKUM);
+                        .getExpedition(
+                                ExpeditionType.ZAKUM
+                        );
 
         if (expedition == null) {
             debug(
-                    "At Zakum altar; waiting for Zakum expedition."
+                    "At Zakum altar; waiting for "
+                            + "Zakum expedition."
             );
 
             return;
         }
 
-        zakumExpedition = expedition;
+        zakumExpedition =
+                expedition;
 
         if (!expedition.isRegistering()) {
             debug(
-                    "Zakum expedition exists but is no longer registering."
+                    "Zakum expedition exists but "
+                            + "is no longer registering."
             );
 
             return;
         }
 
         if (expedition.contains(chr)) {
+            stopWandering();
+
             expeditionRegistered = true;
 
             debug(
-                    "Bot is already registered in Zakum expedition."
+                    "Bot is already registered "
+                            + "in Zakum expedition."
             );
 
-            enterPhase(Phase.TRAVELING_TO_ZAKUM);
+            enterPhase(
+                    Phase.TRAVELING_TO_ZAKUM
+            );
+
             return;
         }
 
-        int result = expedition.addMemberInt(chr);
+        int result =
+                expedition.addMemberInt(chr);
 
         if (result == 0) {
+            stopWandering();
+
             expeditionRegistered = true;
 
             sayDialogue(
@@ -571,7 +896,10 @@ public class ZakumBot extends BotSM {
                             + "Waiting for expedition start."
             );
 
-            enterPhase(Phase.TRAVELING_TO_ZAKUM);
+            enterPhase(
+                    Phase.TRAVELING_TO_ZAKUM
+            );
+
             return;
         }
 
@@ -585,16 +913,27 @@ public class ZakumBot extends BotSM {
         );
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * TRAVEL
+     * ---------------------------------------------------------------------
+     */
+
     private void doTravelToZakum() {
         Character chr = getChr();
 
-        if (chr == null || chr.getMap() == null) {
+        if (chr == null
+                || chr.getMap() == null) {
             return;
         }
 
+        stopWandering();
+
         /*
          * Once registered, the expedition controls the warp.
-         * Never send the bot back to the entrance.
+         *
+         * Never check party membership here.
+         * Never send the bot back to the altar.
          */
         if (expeditionRegistered) {
             if (isInZakumBossMap(chr)) {
@@ -614,8 +953,8 @@ public class ZakumBot extends BotSM {
             }
 
             debug(
-                    "Expedition registered; waiting for expedition warp. "
-                            + "Current map="
+                    "Expedition registered; waiting for "
+                            + "expedition warp. Current map="
                             + chr.getMapId()
             );
 
@@ -629,15 +968,20 @@ public class ZakumBot extends BotSM {
 
             cleanupExpeditionState();
 
-            enterPhase(Phase.WAITING_FOR_PARTY);
+            enterPhase(
+                    Phase.WAITING_FOR_PARTY
+            );
+
             return;
         }
 
-        Character leader = getRealPartyLeader();
+        Character leader =
+                getRealPartyLeader();
 
         if (leader == null) {
             debug(
-                    "Lost real party leader while travelling to Zakum."
+                    "Lost real party leader while "
+                            + "travelling to Zakum."
             );
 
             return;
@@ -655,36 +999,52 @@ public class ZakumBot extends BotSM {
                 if (chr.getMapId()
                         == ZAKUM_DOOR_MAP) {
 
-                    enterPhase(Phase.WAITING_FOR_PARTY);
+                    enterPhase(
+                            Phase.WAITING_FOR_PARTY
+                    );
+
                     return;
                 }
 
                 if (chr.getMapId()
                         == ZAKUM_ALTAR_ENTRANCE_MAP) {
 
-                    enterPhase(Phase.WAITING_FOR_EXPEDITION);
+                    enterPhase(
+                            Phase.WAITING_FOR_EXPEDITION
+                    );
+
                     return;
                 }
 
                 debug(
-                        "Travel succeeded but destination is unexpected: "
+                        "Travel succeeded but destination "
+                                + "is unexpected: "
                                 + chr.getMapId()
                 );
 
-                enterPhase(Phase.WAITING_FOR_EXPEDITION);
+                enterPhase(
+                        Phase.WAITING_FOR_EXPEDITION
+                );
+
                 return;
             }
 
-            debug("Zakum travel failed.");
+            debug(
+                    "Zakum travel failed."
+            );
 
             resetTravelState();
 
             if (chr.getMapId()
                     == ZAKUM_DOOR_MAP) {
 
-                enterPhase(Phase.WAITING_FOR_PARTY);
+                enterPhase(
+                        Phase.WAITING_FOR_PARTY
+                );
             } else {
-                enterPhase(Phase.WAITING_FOR_EXPEDITION);
+                enterPhase(
+                        Phase.WAITING_FOR_EXPEDITION
+                );
             }
 
             return;
@@ -705,23 +1065,39 @@ public class ZakumBot extends BotSM {
             if (chr.getMapId()
                     == ZAKUM_DOOR_MAP) {
 
-                enterPhase(Phase.WAITING_FOR_PARTY);
+                enterPhase(
+                        Phase.WAITING_FOR_PARTY
+                );
             } else {
-                enterPhase(Phase.WAITING_FOR_EXPEDITION);
+                enterPhase(
+                        Phase.WAITING_FOR_EXPEDITION
+                );
             }
         }
     }
 
-    private void beginTravelTo(int destinationMapId) {
+    private void beginTravelTo(
+            int destinationMapId) {
+
         Character chr = getChr();
 
-        if (chr == null || chr.getMap() == null) {
+        if (chr == null
+                || chr.getMap() == null) {
             return;
         }
 
-        if (chr.getMapId() == destinationMapId) {
+        /*
+         * Never allow wandering and GCMovement to operate
+         * simultaneously.
+         */
+        stopWandering();
+
+        if (chr.getMapId()
+                == destinationMapId) {
+
             travelDone = true;
             travelSucceeded = true;
+
             return;
         }
 
@@ -746,9 +1122,12 @@ public class ZakumBot extends BotSM {
                 destinationMapId,
                 new Consumer<Boolean>() {
                     @Override
-                    public void accept(Boolean success) {
+                    public void accept(
+                            Boolean success) {
+
                         travelSucceeded =
-                                success != null && success;
+                                success != null
+                                        && success;
 
                         travelDone = true;
                     }
@@ -763,12 +1142,21 @@ public class ZakumBot extends BotSM {
         travelDeadlineMs = 0L;
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * COMBAT
+     * ---------------------------------------------------------------------
+     */
+
     private void beginFighting() {
         Character chr = getChr();
 
-        if (chr == null || !isInZakumBossMap(chr)) {
+        if (chr == null
+                || !isInZakumBossMap(chr)) {
             return;
         }
+
+        stopWandering();
 
         bossSpawnGraceUntilMs =
                 now() + BOSS_SPAWN_GRACE_MS;
@@ -781,9 +1169,13 @@ public class ZakumBot extends BotSM {
         nextCombatDialogueMs = now();
         nextPlayerReactionMs = now();
 
-        debug("Entered Zakum boss map.");
+        debug(
+                "Entered Zakum boss map."
+        );
 
-        enterPhase(Phase.FIGHTING_ZAKUM);
+        enterPhase(
+                Phase.FIGHTING_ZAKUM
+        );
     }
 
     private void doFightingZakum() {
@@ -794,21 +1186,31 @@ public class ZakumBot extends BotSM {
             return;
         }
 
+        stopWandering();
+
         if (!isInZakumBossMap(chr)) {
             ACTIVE_ZAKUM_BOTS.remove(this);
 
-            debug("Left Zakum boss map.");
+            debug(
+                    "Left Zakum boss map."
+            );
 
-            enterPhase(Phase.FINISHED);
+            enterPhase(
+                    Phase.FINISHED
+            );
+
             return;
         }
 
-        if (now() < bossSpawnGraceUntilMs) {
+        if (now()
+                < bossSpawnGraceUntilMs) {
             return;
         }
 
         if (zakumExpedition != null
-                && zakumExpedition.getBossLogs().size()
+                && zakumExpedition
+                .getBossLogs()
+                .size()
                 >= ZAKUM_PART_COUNT) {
 
             debug(
@@ -817,7 +1219,10 @@ public class ZakumBot extends BotSM {
 
             ACTIVE_ZAKUM_BOTS.remove(this);
 
-            enterPhase(Phase.FINISHED);
+            enterPhase(
+                    Phase.FINISHED
+            );
+
             return;
         }
 
@@ -828,7 +1233,9 @@ public class ZakumBot extends BotSM {
 
             ACTIVE_ZAKUM_BOTS.remove(this);
 
-            enterPhase(Phase.FINISHED);
+            enterPhase(
+                    Phase.FINISHED
+            );
         }
     }
 
@@ -850,17 +1257,20 @@ public class ZakumBot extends BotSM {
         }
 
         /*
-         * Detect player hits/deaths before normal combat dialogue.
+         * Never allow wandering during combat.
+         */
+        stopWandering();
+
+        /*
+         * Detect player hits/deaths.
          */
         processPartyReactions();
 
-        /*
-         * General combat chatter.
-         */
         long now = now();
 
         if (now >= nextCombatDialogueMs) {
-            Character player = findRealPartyMember();
+            Character player =
+                    findRealPartyMember();
 
             sayDialogue(
                     "ZakumCombat",
@@ -873,7 +1283,7 @@ public class ZakumBot extends BotSM {
         }
 
         /*
-         * Keep the actual attack loop independent from dialogue.
+         * Attack independently of dialogue.
          */
         try {
             BotAttackDriver.botAttack(chr);
@@ -884,69 +1294,74 @@ public class ZakumBot extends BotSM {
     private void processPartyReactions() {
         Character chr = getChr();
 
-        if (chr == null || chr.getParty() == null) {
+        if (chr == null
+                || chr.getParty() == null) {
             return;
         }
 
         long now = now();
 
-        for (PartyCharacter pc : chr.getParty().getMembers()) {
+        for (PartyCharacter pc :
+                chr.getParty().getMembers()) {
+
             if (pc == null) {
                 continue;
             }
 
-            Character player = pc.getPlayer();
+            Character player =
+                    pc.getPlayer();
 
             if (player == null
-                    || player.getId() == chr.getId()
+                    || player.getId()
+                    == chr.getId()
                     || isBot(player)
                     || !player.isLoggedinWorld()) {
                 continue;
             }
 
-            /*
-             * Ignore players who somehow aren't in the boss map.
-             */
-            if (player.getMapId() != ZAKUM_BOSS_MAP) {
+            if (player.getMapId()
+                    != ZAKUM_BOSS_MAP) {
                 continue;
             }
 
-            int playerId = player.getId();
-            int currentHp = player.getHp();
+            int playerId =
+                    player.getId();
+
+            int currentHp =
+                    player.getHp();
 
             Integer previousHp =
-                    previousPartyHp.put(playerId, currentHp);
+                    previousPartyHp.put(
+                            playerId,
+                            currentHp
+                    );
 
             /*
-             * Death takes priority over ordinary damage.
+             * Death takes priority.
              */
             if (!player.isAlive()) {
-                if (knownDeadPlayerIds.add(playerId)) {
+                if (knownDeadPlayerIds.add(
+                        playerId)) {
+
                     sayDialogue(
                             "PlayerDeath",
                             player,
                             PLAYER_CONTEXT_CHANCE
                     );
-
-                    /*
-                     * Do not remove the player from knownDeadPlayerIds.
-                     * There is no revive mechanic.
-                     */
                 }
 
                 continue;
             }
 
             /*
-             * If the player is alive, a positive HP drop means
-             * the player was hit.
-             *
-             * The first observation only seeds the HP cache.
+             * A positive HP decrease means the
+             * player was hit.
              */
             if (previousHp != null
                     && previousHp > currentHp
                     && currentHp > 0
-                    && !knownDeadPlayerIds.contains(playerId)
+                    && !knownDeadPlayerIds
+                    .contains(playerId)
                     && now >= nextPlayerReactionMs) {
 
                 sayDialogue(
@@ -961,13 +1376,21 @@ public class ZakumBot extends BotSM {
         }
     }
 
-    private boolean hasLivingZakumMob(Character chr) {
-        if (chr == null || chr.getMap() == null) {
+    private boolean hasLivingZakumMob(
+            Character chr) {
+
+        if (chr == null
+                || chr.getMap() == null) {
             return false;
         }
 
-        for (Monster mob : chr.getMap().getAllMonsters()) {
-            if (mob != null && isZakumMob(mob.getId())) {
+        for (Monster mob :
+                chr.getMap().getAllMonsters()) {
+
+            if (mob != null
+                    && isZakumMob(
+                    mob.getId())) {
+
                 return true;
             }
         }
@@ -975,17 +1398,26 @@ public class ZakumBot extends BotSM {
         return false;
     }
 
-    private boolean isZakumMob(int mobId) {
+    private boolean isZakumMob(
+            int mobId) {
+
         return mobId == MobId.ZAKUM_1
                 || mobId == MobId.ZAKUM_2
                 || mobId == MobId.ZAKUM_3
                 || MobId.isZakumArm(mobId);
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * PARTY INVITES
+     * ---------------------------------------------------------------------
+     */
+
     private void pollRecruitInvite() {
         Character chr = getChr();
 
-        if (chr == null || chr.getParty() != null) {
+        if (chr == null
+                || chr.getParty() != null) {
             return;
         }
 
@@ -997,7 +1429,8 @@ public class ZakumBot extends BotSM {
             return;
         }
 
-        Character recruiter = entry.getInviter();
+        Character recruiter =
+                entry.getInviter();
 
         if (recruiter == null) {
             debug(
@@ -1011,6 +1444,11 @@ public class ZakumBot extends BotSM {
             return;
         }
 
+        /*
+         * Immediately stop wandering before accepting.
+         */
+        stopWandering();
+
         debug(
                 "Zakum party invite received: bot="
                         + chr.getName()
@@ -1021,7 +1459,8 @@ public class ZakumBot extends BotSM {
         );
 
         boolean joined =
-                BotPartyCommands.botAcceptPartyInvite(chr);
+                BotPartyCommands
+                        .botAcceptPartyInvite(chr);
 
         if (!joined) {
             debug(
@@ -1033,11 +1472,16 @@ public class ZakumBot extends BotSM {
                             + entry.getPartyId()
             );
 
+            /*
+             * If accepting failed, the bot may safely resume
+             * wandering while waiting for another invite.
+             */
+            if (phase == Phase.WAITING_FOR_PARTY) {
+                startWandering();
+            }
+
             return;
         }
-
-        recruitedPlayerId =
-                recruiter.getId();
 
         debug(
                 "Zakum bot joined party: bot="
@@ -1055,7 +1499,15 @@ public class ZakumBot extends BotSM {
         );
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * CLEANUP
+     * ---------------------------------------------------------------------
+     */
+
     private void doFinished() {
+        stopWandering();
+
         ACTIVE_ZAKUM_BOTS.remove(this);
 
         previousPartyHp.clear();
@@ -1069,6 +1521,8 @@ public class ZakumBot extends BotSM {
 
         previousPartyHp.clear();
         knownDeadPlayerIds.clear();
+
+        stopWandering();
 
         if (chr != null) {
             GCMovement.cancelTravel(chr);
@@ -1090,6 +1544,8 @@ public class ZakumBot extends BotSM {
         previousPartyHp.clear();
         knownDeadPlayerIds.clear();
 
+        stopWandering();
+
         if (chr != null) {
             GCMovement.cancelTravel(chr);
             GCMovement.stop(chr);
@@ -1102,7 +1558,9 @@ public class ZakumBot extends BotSM {
                 zakumExpedition.removeMember(chr);
             }
 
-            BotRecruitManager.clearArmed(chr.getId());
+            BotRecruitManager.clearArmed(
+                    chr.getId()
+            );
         }
 
         super.stopScheduledTask();
@@ -1116,20 +1574,11 @@ public class ZakumBot extends BotSM {
     }
 
     /*
-     * Non-blocking dialogue playback.
-     *
-     * We intentionally do NOT call executeBotContextDialogue() here.
-     * BotDialogueHandler's normal playback sleeps for the YAML duration,
-     * which would block the shared Zakum combat ticker.
-     *
-     * This implementation:
-     *   1. Loads the node.
-     *   2. Splits contextual/plain lines.
-     *   3. Gives contextual lines a 10% chance.
-     *   4. Resolves {PLAYER_NAME}, etc.
-     *   5. Preserves the selected line's YAML emote.
-     *   6. Calls BotSpeak/BotEmote without sleeping.
+     * ---------------------------------------------------------------------
+     * DIALOGUE
+     * ---------------------------------------------------------------------
      */
+
     private void sayDialogue(
             String node,
             Character player,
@@ -1177,10 +1626,16 @@ public class ZakumBot extends BotSM {
             List<Integer> plainLines =
                     new ArrayList<>();
 
-            for (int i = 0; i < lines.size(); i++) {
-                String line = lines.get(i);
+            for (int i = 0;
+                 i < lines.size();
+                 i++) {
 
-                if (DialogueContextResolver.hasTokens(line)) {
+                String line =
+                        lines.get(i);
+
+                if (DialogueContextResolver
+                        .hasTokens(line)) {
+
                     contextLines.add(i);
                 } else {
                     plainLines.add(i);
@@ -1222,7 +1677,7 @@ public class ZakumBot extends BotSM {
 
             if (spokenIndex == null) {
                 debug(
-                        "No resolvable dialogue line: node="
+                        "No resolvable dialogue line: "
                                 + node
                 );
 
@@ -1243,7 +1698,7 @@ public class ZakumBot extends BotSM {
                     || resolved.trim().isEmpty()) {
 
                 debug(
-                        "Dialogue resolution failed: node="
+                        "Dialogue resolution failed: "
                                 + node
                 );
 
@@ -1251,7 +1706,9 @@ public class ZakumBot extends BotSM {
             }
 
             int emote =
-                    dialog.getEmoteForIndex(spokenIndex);
+                    dialog.getEmoteForIndex(
+                            spokenIndex
+                    );
 
             debug(
                     "Dialogue: node="
@@ -1262,8 +1719,18 @@ public class ZakumBot extends BotSM {
                             + emote
             );
 
-            BotSpeak(chr, resolved);
-            BotEmote(chr, emote);
+            /*
+             * Do not sleep here.
+             */
+            BotSpeak(
+                    chr,
+                    resolved
+            );
+
+            BotEmote(
+                    chr,
+                    emote
+            );
 
         } catch (Throwable t) {
             debug(
@@ -1281,7 +1748,8 @@ public class ZakumBot extends BotSM {
             Character speaker,
             Character player) {
 
-        if (pool == null || pool.isEmpty()) {
+        if (pool == null
+                || pool.isEmpty()) {
             return null;
         }
 
@@ -1291,16 +1759,23 @@ public class ZakumBot extends BotSM {
                         pool.size()
                 );
 
-        for (int attempt = 0; attempt < tries; attempt++) {
+        for (int attempt = 0;
+             attempt < tries;
+             attempt++) {
+
             int index =
                     pool.get(
-                            random.nextInt(pool.size())
+                            random.nextInt(
+                                    pool.size()
+                            )
                     );
 
             String raw =
                     lines.get(index);
 
-            if (!DialogueContextResolver.hasTokens(raw)) {
+            if (!DialogueContextResolver
+                    .hasTokens(raw)) {
+
                 return index;
             }
 
@@ -1317,18 +1792,22 @@ public class ZakumBot extends BotSM {
         }
 
         /*
-         * Deterministic fallback through the selected pool.
+         * Deterministic fallback.
          */
         for (Integer index : pool) {
             if (index == null
                     || index < 0
                     || index >= lines.size()) {
+
                 continue;
             }
 
-            String raw = lines.get(index);
+            String raw =
+                    lines.get(index);
 
-            if (!DialogueContextResolver.hasTokens(raw)) {
+            if (!DialogueContextResolver
+                    .hasTokens(raw)) {
+
                 return index;
             }
 
@@ -1356,7 +1835,9 @@ public class ZakumBot extends BotSM {
             return null;
         }
 
-        if (!DialogueContextResolver.hasTokens(raw)) {
+        if (!DialogueContextResolver
+                .hasTokens(raw)) {
+
             return raw;
         }
 
@@ -1370,21 +1851,43 @@ public class ZakumBot extends BotSM {
         return resolved.orElse(null);
     }
 
+    /*
+     * ---------------------------------------------------------------------
+     * GENERAL HELPERS
+     * ---------------------------------------------------------------------
+     */
+
     private long now() {
         return System.currentTimeMillis();
     }
 
-    private boolean isInZakumBossMap(Character chr) {
+    private boolean isInZakumBossMap(
+            Character chr) {
+
         return chr != null
-                && chr.getMapId() == ZAKUM_BOSS_MAP;
+                && chr.getMapId()
+                == ZAKUM_BOSS_MAP;
     }
 
-    private void enterPhase(Phase next) {
+    private void enterPhase(
+            Phase next) {
+
         if (phase == next) {
             return;
         }
 
         Phase previous = phase;
+
+        /*
+         * Any transition away from an idle phase must stop wandering.
+         *
+         * The new idle phase will explicitly restart it.
+         */
+        if (next != Phase.WAITING_FOR_PARTY
+                && next != Phase.WAITING_FOR_EXPEDITION) {
+
+            stopWandering();
+        }
 
         phase = next;
 
@@ -1395,7 +1898,9 @@ public class ZakumBot extends BotSM {
         );
     }
 
-    private void debug(String message) {
+    private void debug(
+            String message) {
+
         Character chr = getChr();
 
         log(
@@ -1411,7 +1916,8 @@ public class ZakumBot extends BotSM {
     }
 
     @Override
-    public void displayCommands(Character chr) {
+    public void displayCommands(
+            Character chr) {
     }
 
     public boolean canLoot() {

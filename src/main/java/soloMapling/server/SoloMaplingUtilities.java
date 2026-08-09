@@ -133,8 +133,9 @@ public class SoloMaplingUtilities {
     }
 
     public static MapleMap getMapleMapById(int id) {
-        MapleMap map = Server.getInstance().getChannel(0, 1).getMapFactory().getMap(id);
-        return map;
+        return channel
+                .getMapFactory()
+                .getMap(id);
     }
 
 }
