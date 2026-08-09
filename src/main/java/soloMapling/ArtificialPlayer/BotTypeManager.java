@@ -27,6 +27,7 @@ import soloMapling.ArtificialPlayer.BotTypes.FollowerBot;
 import soloMapling.ArtificialPlayer.BotTypes.ZakumBot;
 import soloMapling.ArtificialPlayer.BotSM;
 
+
 import java.awt.Point;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
@@ -47,11 +48,9 @@ public class BotTypeManager {
 
     private static final int ZAKUM_DOOR_MAP = 211042300;
 
-    /*
-     * Safe default position inside The Door to Zakum.
-     *
-     * If your map has a preferred foothold/spawn point, replace these
-     * coordinates with that location.
+    /**
+     * Default spawn position inside The Door to Zakum.
+     * Change this if your map uses a specific foothold/spawn point.
      */
     private static final Point ZAKUM_SPAWN_POINT = new Point(0, 0);
 
@@ -207,8 +206,8 @@ public class BotTypeManager {
                 FollowerBot bot = new FollowerBot(character);
                 CharacterStorage.addActiveBot(character.getId(), bot);
             }
-
         },
+
         ZAKUM_BOT {
             @Override
             public void createAndSetBot(Character character) {
@@ -217,8 +216,7 @@ public class BotTypeManager {
             }
         };
 
-        public abstract void createAndSetBot(Character character);
-    }
+        public abstract void createAndSetBot(Character character);    }
 
     public static void manuallyStartBot(Character fakechar) {
         if (fakechar == null) {
@@ -272,13 +270,11 @@ public class BotTypeManager {
 
         bot.setRunning(true);
         bot.startScheduledTask(2000L);
-    },
+    }
 
     // Re-type a live bot in place.
-    public static boolean convertBotType(
-            Character fakechar,
-            BotType botType) {
 
+    public static boolean convertBotType(Character fakechar, BotType botType) {
         if (fakechar == null || botType == null) {
             return false;
         }
@@ -302,24 +298,6 @@ public class BotTypeManager {
 
         return true;
     }
-    public static boolean convertBotType(Character fakechar, BotType botType) {
-        BotSM existing = getBotById(fakechar.getId());
-
-        if (existing != null) {
-            if (existing.getState() == BotSM.BotState.TRADING) {
-                debugprint("convertBotType: refused, bot is mid-trade: " + fakechar.getName());
-                return false;
-            }
-
-            manuallyStopBot(fakechar);
-        }
-
-        botType.createAndSetBot(fakechar);
-        manuallyStartBot(fakechar);
-
-        return true;
-    }
-
     public static void massCreateBots(
             Integer start,
             Integer end,
@@ -357,75 +335,7 @@ public class BotTypeManager {
      * Creates ONE ZakumBot and puts it directly into
      * The Door to Zakum (211042300).
      */
-    public static void createZakumBot(Client c) {
 
-        MapleMap map =
-                Server.getInstance()
-                        .getChannel(0, 1)
-                        .getMapFactory()
-                        .getMap(ZAKUM_DOOR_MAP);
-
-        if (map == null) {
-            debugprint(
-                    "createZakumBot: map "
-                            + ZAKUM_DOOR_MAP
-                            + " does not exist."
-            );
-            return;
-        }
-
-        runAsync(() -> {
-
-            int botId =
-                    BotGeneration.createBot(
-                            ZAKUM_SPAWN_POINT,
-                            map
-                    );
-
-            Character fakechar =
-                    BotHelpers.getCharFromChannelStorage(botId);
-
-            if (fakechar == null) {
-                debugprint(
-                        "createZakumBot: failed to retrieve bot "
-                                + botId
-                );
-                return;
-            }
-
-            /*
-             * The Character already exists on 211042300.
-             * Now attach the Zakum FSM.
-             */
-            ZAKUM_BOT.createAndSetBot(fakechar);
-
-            /*
-             * Start the FSM after spawn choreography.
-             */
-            manuallyStartBot(fakechar);
-
-            debugprint(
-                    "Created ZakumBot "
-                            + fakechar.getName()
-                            + " id="
-                            + fakechar.getId()
-                            + " map="
-                            + fakechar.getMapId()
-            );
-        });
-    }
-
-    /*
-     * Creates multiple ZakumBots.
-     *
-     * Every bot:
-     *
-     *   1. is created
-     *   2. is placed on 211042300
-     *   3. is wrapped as a ZakumBot
-     *   4. has its FSM started
-     *   5. waits for a party invitation
-     */
     public static void createZakumBots(int count) {
 
         if (count <= 0) {
@@ -471,7 +381,7 @@ public class BotTypeManager {
                     continue;
                 }
 
-                ZAKUM_BOT.createAndSetBot(fakechar);
+                BotType.ZAKUM_BOT.createAndSetBot(fakechar);
 
                 manuallyStartBot(fakechar);
 
@@ -644,4 +554,4 @@ public class BotTypeManager {
         return fakechar;
     }
 }
-```
+
