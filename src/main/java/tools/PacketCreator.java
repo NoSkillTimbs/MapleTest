@@ -4459,7 +4459,7 @@ public class PacketCreator {
         }
 
         p.writeInt(pet.getItemId());
-        p.writeString(pet.getName());
+        p.writeString(pet.getName() != null ? pet.getName() : "");
         p.writeLong(pet.getUniqueId());
         p.writePos(pet.getPos());
         p.writeByte(pet.getStance());
