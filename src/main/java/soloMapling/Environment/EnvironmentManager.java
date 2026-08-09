@@ -94,6 +94,7 @@ public class EnvironmentManager {
     private static final int OPQ_LOBBY = 200080101;
     private static final int HENEHOE_LEVEL_MIN = 120;
     private static final int HENEHOE_LEVEL_MAX = 160;
+    private static final int ZAKUM_DOOR = 211042300;
 
     public static void environmentLoadStartup() {
         // EquipMetadataCache + DesirableEquipList are server data, loaded during
@@ -162,7 +163,8 @@ public class EnvironmentManager {
                 () -> spawnOPQBotsInLobby(),
                 () -> spawnMerchBotsBatch("m1", 2, 2, 0),
                 () -> spawnMerchBotsBatch("m2", 2, 2, 1),
-                () -> spawnMerchBotsBatch("m5", 2, 2, 1)
+                () -> spawnMerchBotsBatch("m5", 2, 2, 1),
+                () -> spawnZakumBots(25)
         ));
 
         // Roaming training grinders. Each cohort = N job-coherent bots at a town's spawn portal; they
@@ -1219,6 +1221,60 @@ public class EnvironmentManager {
                 bot.setLevel(minLevel + random.nextInt(maxLevel - minLevel + 1));
             }
         }
+    }
+    public static int spawnZakumBots(int count) {
+        MapleMap map = getMapleMapById(ZAKUM_DOOR);
+
+        if (map == null || map.getPortal(0) == null) {
+            debugprint(fmt(
+                    "ZakumBots: no map / spawn portal for {}",
+                    ZAKUM_DOOR
+            ));
+            return 0;
+        }
+
+        Point anchor = map.getPortal(0).getPosition();
+        List<Integer> ids = new ArrayList<>();
+
+        for (int i = 0; i < count; i++) {
+            try {
+                int baseClass = BotDecorate.rollBaseClass();
+
+                int botId = BotGeneration.createBot(
+                        anchor,
+                        map,
+                        baseClass,
+                        100,
+                        170
+                );
+
+                if (botId > 0) {
+                    ids.add(botId);
+                }
+
+            } catch (Exception e) {
+                debugprint(fmt(
+                        "ZakumBots: create failed on {} ({})",
+                        ZAKUM_DOOR,
+                        e.getMessage()
+                ));
+            }
+        }
+
+        if (!ids.isEmpty()) {
+            setAndStartBots(
+                    ids,
+                    BotTypeManager.BotType.ZAKUM_BOT
+            );
+        }
+
+        debugprint(fmt(
+                "ZakumBots: {} spawned in Door to Zakum ({})",
+                ids.size(),
+                ZAKUM_DOOR
+        ));
+
+        return ids.size();
     }
 
 }

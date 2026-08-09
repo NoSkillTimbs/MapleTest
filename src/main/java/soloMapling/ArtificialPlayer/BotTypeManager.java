@@ -218,6 +218,24 @@ public class BotTypeManager {
 
         public abstract void createAndSetBot(Character character);    }
 
+    public static void massCreateBots(
+            Integer start,
+            Integer end,
+            Client c) {
+
+        for (int x = start; x < end; x++) {
+            MapleMap map =
+                    getMapleMapById(c.getPlayer().getMapId());
+
+            Point pos =
+                    c.getPlayer().getPosition();
+
+            BotGeneration.createBot(pos, map);
+
+            BotHelpers.blockingSleep(50);
+        }
+    }
+
     public static void manuallyStartBot(Character fakechar) {
         if (fakechar == null) {
             debugprint("manuallyStartBot: character is null.");
@@ -298,23 +316,7 @@ public class BotTypeManager {
 
         return true;
     }
-    public static void massCreateBots(
-            Integer start,
-            Integer end,
-            Client c) {
 
-        for (int x = start; x < end; x++) {
-            MapleMap map =
-                    getMapleMapById(c.getPlayer().getMapId());
-
-            Point pos =
-                    c.getPlayer().getPosition();
-
-            BotGeneration.createBot(pos, map);
-
-            BotHelpers.blockingSleep(50);
-        }
-    }
 
     public static void createBots(Client c) {
         MapleMap map =

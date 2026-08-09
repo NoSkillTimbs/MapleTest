@@ -28,7 +28,6 @@ import soloMapling.ArtificialPlayer.BotPartySystem.BotRecruitManager;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.QueueMonitor;
 import soloMapling.ArtificialPlayer.BotGeneration;
 import soloMapling.ArtificialPlayer.BotHelpers;
-import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTypeManager;
 import soloMapling.ArtificialPlayer.SocialHotPotatoManager;
@@ -77,6 +76,7 @@ import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.TEST_ATTACK_BO
 import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.ZAKUM_BOT;
 import static soloMapling.ArtificialPlayer.BotTypeManager.manuallyStartBot;
 import static soloMapling.ArtificialPlayer.BotTypeManager.manuallyStopBot;
+import static soloMapling.ArtificialPlayer.BotTypeManager.convertBotType;
 import static soloMapling.DebugUtilities.debugprint;
 import static soloMapling.server.NXCodeManager.createCompleteNXCode;
 import static soloMapling.server.SoloMaplingUtilities.getMapleMapById;
@@ -282,11 +282,22 @@ public class ArtificialPlayerCommand extends Command {
                 HENESYS_JQ_BOT.createAndSetBot(fakechar);
                 break;
             case "trainbot":
-            case "trainingbot":
-                // convert (stop→set→start) so the macro FSM ticks immediately on an already-running bot
-                convertBotType(fakechar, BotTypeManager.BotType.TRAINING_BOT);
-                player.yellowMessage("Bot " + fakechar.getId() + " is now a TrainingBot (town↔grind loop).");
+            case "trainingbot": {
+                boolean converted =
+                        BotTypeManager.convertBotType(
+                                fakechar,
+                                BotTypeManager.BotType.TRAINING_BOT
+                        );
+
+                player.yellowMessage(
+                        converted
+                                ? "Bot " + fakechar.getId()
+                                + " is now a TrainingBot (town↔grind loop)."
+                                : "Conversion refused - bot is mid-trade."
+                );
                 break;
+            }
+
             case "breaknow": {
                 BotSM maybeTrainer = CharacterStorage.getBotById(fakechar.getId());
                 if (maybeTrainer instanceof TrainingBot tb) {
@@ -298,6 +309,7 @@ public class ArtificialPlayerCommand extends Command {
                 }
                 break;
             }
+
             case "restspot": {
                 BotSM maybeTrainer = CharacterStorage.getBotById(fakechar.getId());
                 if (maybeTrainer instanceof TrainingBot) {
@@ -309,14 +321,26 @@ public class ArtificialPlayerCommand extends Command {
                 }
                 break;
             }
+
             case "followbot":
             case "followerbot": {
-                // the commanding GM becomes the leader (same handoff the dialogue recruit flow uses)
-                BotRecruitManager.setPendingLeader(fakechar.getId(), c.getPlayer().getId());
-                boolean converted = convertBotType(fakechar, BotTypeManager.BotType.FOLLOWER_BOT);
-                player.yellowMessage(converted
-                        ? "Bot " + fakechar.getName() + " is now a FollowerBot following YOU."
-                        : "Conversion refused - bot is mid-trade.");
+                // The commanding GM becomes the leader.
+                BotRecruitManager.setPendingLeader(
+                        fakechar.getId(),
+                        c.getPlayer().getId()
+                );
+
+                boolean converted =
+                        convertBotType(
+                                fakechar,
+                                BotTypeManager.BotType.FOLLOWER_BOT
+                        );
+
+                player.yellowMessage(
+                        converted
+                                ? "Bot " + fakechar.getName() + " is now a FollowerBot following YOU."
+                                : "Conversion refused - bot is mid-trade."
+                );
                 break;
             }
             case "manualstart":
