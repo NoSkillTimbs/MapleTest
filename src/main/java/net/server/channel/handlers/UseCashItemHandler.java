@@ -125,11 +125,10 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
             medal = "<" + ii.getName(medalItem.getItemId()) + "> ";
         }
 
-        if (itemType == 504) { // vip teleport rock
+        if (itemType == 504) { // teleport rocks
             String error1 = "Either the player could not be found or you were trying to teleport to an illegal location.";
 
             boolean isHyperRock = (itemId == 5041999);
-
             boolean vip = p.readByte() == 1
                     && itemId / 1000 >= 5041
                     && !isHyperRock;
@@ -141,34 +140,19 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
             if (!vip) {
                 int mapId = p.readInt();
 
-                if (isHyperRock
-                        || itemId / 1000 >= 5041
-                        || mapId / 100000000 == player.getMapId() / 100000000) {
+                // Teleport rocks can now travel to any valid map.
+                MapleMap targetMap = c.getChannelServer()
+                        .getMapFactory()
+                        .getMap(mapId);
 
-                    MapleMap targetMap = c.getChannelServer()
-                            .getMapFactory()
-                            .getMap(mapId);
+                if (targetMap != null) {
+                    player.forceChangeMap(
+                            targetMap,
+                            targetMap.getRandomPlayerSpawnpoint());
 
-                    if (targetMap != null
-                            && (!FieldLimit.CANNOTVIPROCK.check(targetMap.getFieldLimit())
-                            || isHyperRock)
-                            && (targetMap.getForcedReturnId() == MapId.NONE
-                            || MapId.isMapleIsland(mapId)
-                            || isHyperRock)) {
-
-                        player.forceChangeMap(
-                                targetMap,
-                                targetMap.getRandomPlayerSpawnpoint());
-
-                        success = true;
-
-                    } else {
-                        player.dropMessage(1, error1);
-                    }
-
+                    success = true;
                 } else {
-                    player.dropMessage(1,
-                            "You cannot teleport between continents with this teleport rock.");
+                    player.dropMessage(1, error1);
                 }
 
             } else {
@@ -180,23 +164,17 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
 
                 if (target == null) {
                     player.dropMessage(1, error1);
-
                 } else {
                     MapleMap targetMap = target.getMap();
 
-                    if (targetMap != null
-                            && (!FieldLimit.CANNOTVIPROCK.check(targetMap.getFieldLimit())
-                            || isHyperRock)
-                            && (targetMap.getForcedReturnId() == MapId.NONE
-                            || MapId.isMapleIsland(targetMap.getId())
-                            || isHyperRock)) {
-
+                    // VIP rock can now teleport to the target regardless
+                    // of field-limit or forced-return restrictions.
+                    if (targetMap != null) {
                         player.forceChangeMap(
                                 targetMap,
                                 targetMap.getPortal(0));
 
                         success = true;
-
                     } else {
                         player.dropMessage(1, error1);
                     }
@@ -207,11 +185,9 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
                 if (!isHyperRock) {
                     InventoryManipulator.addById(c, itemId, (short) 1);
                 }
-
                 c.sendPacket(PacketCreator.enableActions());
             }
-        }
-        else if (itemType == 505) { // AP/SP reset
+        }        else if (itemType == 505) { // AP/SP reset
             if (!player.isAlive()) {
                 c.sendPacket(PacketCreator.enableActions());
                 return;

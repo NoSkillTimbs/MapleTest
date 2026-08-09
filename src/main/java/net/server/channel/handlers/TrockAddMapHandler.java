@@ -25,7 +25,6 @@ import client.Character;
 import client.Client;
 import net.AbstractPacketHandler;
 import net.packet.InPacket;
-import server.maps.FieldLimit;
 import tools.PacketCreator;
 
 /**
@@ -46,18 +45,7 @@ public final class TrockAddMapHandler extends AbstractPacketHandler {
                 chr.deleteFromTrocks(mapId);
             }
             c.sendPacket(PacketCreator.trockRefreshMapList(chr, true, vip));
-        } else if (type == 0x01) {
-            if (!FieldLimit.CANNOTVIPROCK.check(chr.getMap().getFieldLimit())) {
-                if (vip) {
-                    chr.addVipTrockMap();
-                } else {
-                    chr.addTrockMap();
-                }
 
-                c.sendPacket(PacketCreator.trockRefreshMapList(chr, false, vip));
-            } else {
-                chr.message("You may not save this map.");
-            }
-        }
-    }
+            c.sendPacket(PacketCreator.trockRefreshMapList(chr, false, vip));
+        }    }
 }
