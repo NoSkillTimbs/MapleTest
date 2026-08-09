@@ -50,6 +50,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import static soloMapling.ArtificialPlayer.BotHelpers.isBot;
 
 import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -329,16 +330,47 @@ public class Expedition {
         return type;
     }
 
-    public List<Character> getActiveMembers() {    // thanks MedicOP for figuring out an issue with broadcasting packets to offline members
+    public List<Character> getActiveMembers() {
         PlayerStorage ps = startMap.getWorldServer().getPlayerStorage();
-
         List<Character> activeMembers = new LinkedList<>();
+
         for (Integer chrid : getMembers().keySet()) {
             Character chr = ps.getCharacterById(chrid);
-            if (chr != null && chr.isLoggedinWorld()) {
+
+            boolean found = chr != null;
+            boolean loggedIn = found && chr.isLoggedinWorld();
+            boolean bot = found && isBot(chr);
+            boolean active = loggedIn || bot;
+
+            System.out.println(
+                    "[EXPEDITION DEBUG] member=" + chrid
+                            + " found=" + found
+                            + " loggedIn=" + loggedIn
+                            + " isBot=" + bot
+                            + " active=" + active
+                            + " name=" + (found ? chr.getName() : "NULL")
+            );
+
+            if (chr == null) {
+                continue;
+            }
+
+            /*
+             * Normal players must be logged in.
+             * Artificial bots are valid expedition members even when
+             * isLoggedinWorld() returns false.
+             */
+            if (active) {
                 activeMembers.add(chr);
             }
         }
+
+        System.out.println(
+                "[EXPEDITION DEBUG] activeMembers="
+                        + activeMembers.size()
+                        + " registeredMembers="
+                        + members.size()
+        );
 
         return activeMembers;
     }
@@ -388,39 +420,72 @@ public class Expedition {
 
     public final void warpExpeditionTeam(int warpFrom, int warpTo) {
         List<Character> players = getActiveMembers();
-
+        System.out.println("[EXPEDITION WARP] from=" + warpFrom + " to=" + warpTo + " players=" + players.size());
         for (Character chr : players) {
-            if (chr.getMapId() == warpFrom) {
+            boolean bot = isBot(chr);
+            System.out.println("[EXPEDITION WARP] CHECK name=" + chr.getName() + " id=" + chr.getId() + " map=" + chr.getMapId() + " from=" + warpFrom + " bot=" + bot);
+            if (chr.getMapId() != warpFrom) continue;
+            System.out.println("[EXPEDITION WARP] WARPING name=" + chr.getName() + " id=" + chr.getId() + " bot=" + bot + " -> " + warpTo);
+            try {
                 chr.changeMap(warpTo);
+                System.out.println("[EXPEDITION WARP] RESULT name=" + chr.getName() + " mapNow=" + chr.getMapId());
+            } catch (Throwable t) {
+                System.out.println("[EXPEDITION WARP] ERROR name=" + chr.getName() + " error=" + t.getMessage());
+                t.printStackTrace();
             }
         }
     }
 
     public final void warpExpeditionTeam(int warpTo) {
         List<Character> players = getActiveMembers();
-
+        System.out.println("[EXPEDITION WARP] ALL -> " + warpTo + " players=" + players.size());
         for (Character chr : players) {
-            chr.changeMap(warpTo);
+            boolean bot = isBot(chr);
+            System.out.println("[EXPEDITION WARP] WARPING name=" + chr.getName() + " id=" + chr.getId() + " map=" + chr.getMapId() + " bot=" + bot + " -> " + warpTo);
+            try {
+                chr.changeMap(warpTo);
+                System.out.println("[EXPEDITION WARP] RESULT name=" + chr.getName() + " mapNow=" + chr.getMapId());
+            } catch (Throwable t) {
+                System.out.println("[EXPEDITION WARP] ERROR name=" + chr.getName() + " error=" + t.getMessage());
+                t.printStackTrace();
+            }
         }
     }
 
     public final void warpExpeditionTeamToMapSpawnPoint(int warpFrom, int warpTo, int toSp) {
         List<Character> players = getActiveMembers();
-
+        System.out.println("[EXPEDITION WARP] from=" + warpFrom + " to=" + warpTo + " spawn=" + toSp + " players=" + players.size());
         for (Character chr : players) {
-            if (chr.getMapId() == warpFrom) {
+            boolean bot = isBot(chr);
+            System.out.println("[EXPEDITION WARP] CHECK name=" + chr.getName() + " id=" + chr.getId() + " map=" + chr.getMapId() + " from=" + warpFrom + " bot=" + bot);
+            if (chr.getMapId() != warpFrom) continue;
+            System.out.println("[EXPEDITION WARP] WARPING name=" + chr.getName() + " id=" + chr.getId() + " bot=" + bot + " -> " + warpTo + " spawn=" + toSp);
+            try {
                 chr.changeMap(warpTo, toSp);
+                System.out.println("[EXPEDITION WARP] RESULT name=" + chr.getName() + " mapNow=" + chr.getMapId());
+            } catch (Throwable t) {
+                System.out.println("[EXPEDITION WARP] ERROR name=" + chr.getName() + " error=" + t.getMessage());
+                t.printStackTrace();
             }
         }
     }
 
     public final void warpExpeditionTeamToMapSpawnPoint(int warpTo, int toSp) {
         List<Character> players = getActiveMembers();
-
+        System.out.println("[EXPEDITION WARP] ALL -> " + warpTo + " spawn=" + toSp + " players=" + players.size());
         for (Character chr : players) {
-            chr.changeMap(warpTo, toSp);
+            boolean bot = isBot(chr);
+            System.out.println("[EXPEDITION WARP] WARPING name=" + chr.getName() + " id=" + chr.getId() + " map=" + chr.getMapId() + " bot=" + bot + " -> " + warpTo + " spawn=" + toSp);
+            try {
+                chr.changeMap(warpTo, toSp);
+                System.out.println("[EXPEDITION WARP] RESULT name=" + chr.getName() + " mapNow=" + chr.getMapId());
+            } catch (Throwable t) {
+                System.out.println("[EXPEDITION WARP] ERROR name=" + chr.getName() + " error=" + t.getMessage());
+                t.printStackTrace();
+            }
         }
     }
+
 
     public final boolean addChannelExpedition(Channel ch) {
         return ch.addExpedition(this);

@@ -1,7 +1,7 @@
 package soloMapling.ArtificialPlayer.BotTypes;
 
 import client.Character;
-import constants.id.MapId;
+import client.inventory.manipulator.InventoryManipulator;
 import constants.id.MobId;
 import net.server.world.Party;
 import net.server.world.PartyCharacter;
@@ -9,12 +9,14 @@ import server.expeditions.Expedition;
 import server.expeditions.ExpeditionType;
 import server.life.Monster;
 import soloMapling.ArtificialPlayer.BotAttackSystem.BotAttackDriver;
+import soloMapling.ArtificialPlayer.BotPartySystem.BotPartyCommands;
 import soloMapling.ArtificialPlayer.BotPartySystem.BotPartyQueue;
 import soloMapling.ArtificialPlayer.BotPartySystem.BotRecruitManager;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.server.ExecutorServiceManager;
 
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
@@ -25,19 +27,21 @@ import static soloMapling.BotLogger.log;
 
 public class ZakumBot extends BotSM {
 
-    private static final int ZAKUM_MIN_LEVEL = 50;
-    private static final int ZAKUM_BOSS_MAP = 280030000;
+    private static final int ZAKUM_MIN_LEVEL = 100;
+    private static final int ZAKUM_MAX_LEVEL = 150;
     private static final int ZAKUM_DOOR_MAP = 211042300;
     private static final int ZAKUM_ALTAR_ENTRANCE_MAP = 211042400;
+    private static final int ZAKUM_BOSS_MAP = 280030000;
     private static final int ZAKUM_PART_COUNT = 11;
+    private static final int EYE_OF_FIRE_ITEM_ID = 4001017;
+    private static final int EYE_OF_FIRE_COUNT = 5;
+
     private static final long COMBAT_TICK_MS = 250;
     private static final long BOSS_SPAWN_GRACE_MS = 10_000;
     private static final long TRAVEL_TIMEOUT_MS = 120_000;
-    private static final long RECRUIT_MESSAGE_COOLDOWN_MS = 30_000;
     private static final long EXPEDITION_CHECK_INTERVAL_MS = 2_000;
 
-    private static final java.util.Set<ZakumBot> ACTIVE_ZAKUM_BOTS =
-            ConcurrentHashMap.newKeySet();
+    private static final Set<ZakumBot> ACTIVE_ZAKUM_BOTS = ConcurrentHashMap.newKeySet();
     private static volatile boolean combatTickerStarted = false;
 
     private static synchronized void ensureCombatTicker() {
@@ -77,21 +81,18 @@ public class ZakumBot extends BotSM {
     private Expedition zakumExpedition;
     private int recruitedPlayerId = -1;
     private boolean expeditionRegistered = false;
-
-    private long nextRecruitMessageMs = 0L;
+    private boolean zakumItemsGranted = false;
     private long nextExpeditionCheckMs = 0L;
-
     private volatile boolean travelDone = false;
     private volatile boolean travelSucceeded = false;
     private boolean travelStarted = false;
     private long travelDeadlineMs = 0L;
-
     private long bossSpawnGraceUntilMs = 0L;
 
     public ZakumBot(Character character) {
         super(character);
         botType = "ZakumBot";
-        dialoguePath = "ZakumBotDialogue.yaml";
+        dialoguePath = "ZakumBot.yaml";
     }
 
     @Override
@@ -119,9 +120,13 @@ public class ZakumBot extends BotSM {
         ensureCombatTicker();
 
         Character chr = getChr();
+        if (chr == null) return;
 
-        if (chr.getLevel() < ZAKUM_MIN_LEVEL) {
-            debug("Below Zakum level requirement.");
+        grantZakumItems();
+
+        if (chr.getLevel() < ZAKUM_MIN_LEVEL || chr.getLevel() > ZAKUM_MAX_LEVEL) {
+            debug("Outside Zakum level range: " + chr.getLevel()
+                    + " (allowed " + ZAKUM_MIN_LEVEL + "-" + ZAKUM_MAX_LEVEL + ")");
             enterPhase(Phase.FINISHED);
             return;
         }
@@ -139,28 +144,68 @@ public class ZakumBot extends BotSM {
 
         debug("At Zakum door. Waiting for party invitation.");
         enterPhase(Phase.WAITING_FOR_PARTY);
-    }    private void doWaitingForParty() {
+    }
+
+    private void grantZakumItems() {
+        if (zakumItemsGranted) return;
+
         Character chr = getChr();
+        if (chr == null || chr.getClient() == null) return;
+
+        try {
+            int currentQuantity = chr.getItemQuantity(EYE_OF_FIRE_ITEM_ID, false);
+            int missing = EYE_OF_FIRE_COUNT - currentQuantity;
+
+            if (missing <= 0) {
+                zakumItemsGranted = true;
+                debug("Already has " + currentQuantity + "x Eye of Fire.");
+                return;
+            }
+
+            boolean added = InventoryManipulator.addById(
+                    chr.getClient(),
+                    EYE_OF_FIRE_ITEM_ID,
+                    (short) missing
+            );
+
+            if (added) {
+                zakumItemsGranted = true;
+                debug("Granted " + missing + "x Eye of Fire (" + EYE_OF_FIRE_ITEM_ID
+                        + "). Total required=" + EYE_OF_FIRE_COUNT);
+            } else {
+                debug("Failed to grant " + missing + "x Eye of Fire.");
+            }
+        } catch (Throwable t) {
+            debug("Exception while granting Eye of Fire: " + t.getMessage());
+        }
+    }
+
+    private void doWaitingForParty() {
+        Character chr = getChr();
+        if (chr == null) return;
+
+        if (chr.getLevel() < ZAKUM_MIN_LEVEL || chr.getLevel() > ZAKUM_MAX_LEVEL) {
+            debug("Zakum bot no longer within level range.");
+            enterPhase(Phase.FINISHED);
+            return;
+        }
 
         if (chr.getMapId() != ZAKUM_DOOR_MAP) {
-            debug("Left Zakum waiting area. Returning to " + ZAKUM_DOOR_MAP);
+            debug("Zakum bot is not at the Door to Zakum. Returning.");
             beginTravelTo(ZAKUM_DOOR_MAP);
             enterPhase(Phase.TRAVELING_TO_ZAKUM);
             return;
         }
 
         if (chr.getParty() != null) {
-            debug("Party invitation accepted. Following party leader.");
+            debug("Zakum bot joined party " + chr.getParty().getId());
             enterPhase(Phase.PARTY_JOINED);
-            return;
         }
-
-        // Intentionally do nothing here.
-        // Zakum bots wait at The Door to Zakum for a player invitation.
     }
 
     private void doPartyJoined() {
         Character chr = getChr();
+        if (chr == null) return;
 
         if (chr.getParty() == null) {
             cleanupExpeditionState();
@@ -169,7 +214,6 @@ public class ZakumBot extends BotSM {
         }
 
         Character leader = getRealPartyLeader();
-
         if (leader == null) {
             debug("Party joined, but real party leader is unavailable.");
             return;
@@ -177,14 +221,14 @@ public class ZakumBot extends BotSM {
 
         debug("Party joined. Following leader " + leader.getName()
                 + " to Zakum altar entrance.");
-
         enterPhase(Phase.WAITING_FOR_EXPEDITION);
     }
 
     private Character findRealPartyMember() {
         Character chr = getChr();
+        if (chr == null || chr.getParty() == null) return null;
+
         Party party = chr.getParty();
-        if (party == null) return null;
 
         for (PartyCharacter pc : party.getMembers()) {
             if (pc == null) continue;
@@ -193,10 +237,13 @@ public class ZakumBot extends BotSM {
             if (player == null
                     || player.getId() == chr.getId()
                     || isBot(player)
-                    || !player.isLoggedinWorld()) continue;
+                    || !player.isLoggedinWorld()) {
+                continue;
+            }
 
             return player;
         }
+
         return null;
     }
 
@@ -205,7 +252,6 @@ public class ZakumBot extends BotSM {
         if (chr == null || chr.getParty() == null) return null;
 
         PartyCharacter leaderPc = chr.getParty().getLeader();
-
         if (leaderPc == null) return null;
 
         Character leader = leaderPc.getPlayer();
@@ -222,6 +268,20 @@ public class ZakumBot extends BotSM {
 
     private void doWaitingForExpedition() {
         Character chr = getChr();
+        if (chr == null || chr.getMap() == null) return;
+
+        if (expeditionRegistered) {
+            if (isInZakumBossMap(chr)) {
+                beginFighting();
+                return;
+            }
+
+            if (chr.getMapId() == ZAKUM_ALTAR_ENTRANCE_MAP) return;
+
+            debug("Already registered for Zakum expedition; waiting for expedition warp. map="
+                    + chr.getMapId());
+            return;
+        }
 
         if (chr.getParty() == null) {
             cleanupExpeditionState();
@@ -230,22 +290,17 @@ public class ZakumBot extends BotSM {
         }
 
         Character leader = getRealPartyLeader();
-
         if (leader == null) {
             debug("Waiting for real party leader.");
             return;
         }
 
-        // Follow the party leader to the actual Zakum altar entrance.
         if (chr.getMapId() != ZAKUM_ALTAR_ENTRANCE_MAP) {
-
-            // If the leader is already at the altar entrance,
-            // move the bot there immediately.
             if (leader.getMapId() == ZAKUM_ALTAR_ENTRANCE_MAP) {
                 debug("Leader reached Zakum altar entrance. Following.");
             } else {
                 debug("Following leader " + leader.getName()
-                        + " to map " + leader.getMapId());
+                        + " to Zakum altar entrance.");
             }
 
             beginTravelTo(ZAKUM_ALTAR_ENTRANCE_MAP);
@@ -253,21 +308,22 @@ public class ZakumBot extends BotSM {
             return;
         }
 
-        // We are now at 211042400.
-        // This is where expedition registration happens.
         long now = now();
-
         if (now < nextExpeditionCheckMs) return;
 
-        nextExpeditionCheckMs =
-                now + EXPEDITION_CHECK_INTERVAL_MS;
+        nextExpeditionCheckMs = now + EXPEDITION_CHECK_INTERVAL_MS;
+
+        if (leader.getClient() == null
+                || leader.getClient().getChannelServer() == null) {
+            return;
+        }
 
         Expedition expedition = leader.getClient()
                 .getChannelServer()
                 .getExpedition(ExpeditionType.ZAKUM);
 
         if (expedition == null) {
-            debug("At 211042400, waiting for Zakum expedition.");
+            debug("At Zakum altar; waiting for Zakum expedition.");
             return;
         }
 
@@ -280,7 +336,8 @@ public class ZakumBot extends BotSM {
 
         if (expedition.contains(chr)) {
             expeditionRegistered = true;
-            debug("Already registered in Zakum expedition.");
+            debug("Bot is already registered in Zakum expedition.");
+            enterPhase(Phase.TRAVELING_TO_ZAKUM);
             return;
         }
 
@@ -288,54 +345,57 @@ public class ZakumBot extends BotSM {
 
         if (result == 0) {
             expeditionRegistered = true;
-
             sayRecruit("ExpeditionJoined", leader);
-
-            debug("Successfully joined Zakum expedition.");
-
+            debug("Successfully joined Zakum expedition. Waiting for expedition start.");
             enterPhase(Phase.TRAVELING_TO_ZAKUM);
-        } else {
-            debug("Zakum expedition registration failed. Result=" + result);
+            return;
         }
+
+        debug("Expedition registration failed. result=" + result
+                + " contains=" + expedition.contains(chr)
+                + " registering=" + expedition.isRegistering());
     }
+
     private void doTravelToZakum() {
         Character chr = getChr();
-
         if (chr == null || chr.getMap() == null) return;
 
+        /*
+         * Once registered, the expedition controls the warp.
+         * Never check party membership here and never send the bot
+         * back to the entrance.
+         */
+        if (expeditionRegistered) {
+            if (isInZakumBossMap(chr)) {
+                debug("Successfully entered Zakum boss map.");
+                resetTravelState();
+                beginFighting();
+                return;
+            }
+
+            if (chr.getMapId() == ZAKUM_ALTAR_ENTRANCE_MAP) return;
+
+            debug("Expedition registered; waiting for expedition warp. Current map="
+                    + chr.getMapId());
+            return;
+        }
+
         if (chr.getParty() == null) {
+            debug("Lost party before expedition registration.");
             cleanupExpeditionState();
             enterPhase(Phase.WAITING_FOR_PARTY);
             return;
         }
 
         Character leader = getRealPartyLeader();
-
         if (leader == null) {
-            debug("Lost party leader while travelling.");
+            debug("Lost real party leader while travelling to Zakum.");
             return;
         }
 
-        if (expeditionRegistered) {
-            if (isInZakumBossMap(leader)) {
-                debug("Leader entered Zakum. Following leader.");
-                chr.changeMap(ZAKUM_BOSS_MAP);
-                return;
-            }
-
-            // Leader has moved to the altar entrance; remain with them.
-            if (leader.getMapId() != ZAKUM_ALTAR_ENTRANCE_MAP) {
-                debug("Following leader to map " + leader.getMapId());
-                beginTravelTo(leader.getMapId());
-                enterPhase(Phase.TRAVELING_TO_ZAKUM);
-            }
-
-            return;
-        }
         if (travelDone) {
             if (travelSucceeded) {
                 debug("Travel completed at map " + chr.getMapId());
-
                 resetTravelState();
 
                 if (chr.getMapId() == ZAKUM_DOOR_MAP) {
@@ -348,29 +408,26 @@ public class ZakumBot extends BotSM {
                     return;
                 }
 
-                // Unexpected destination.
                 debug("Travel succeeded but destination is unexpected: "
                         + chr.getMapId());
-
                 enterPhase(Phase.WAITING_FOR_EXPEDITION);
+                return;
+            }
+
+            debug("Zakum travel failed.");
+            resetTravelState();
+
+            if (chr.getMapId() == ZAKUM_DOOR_MAP) {
+                enterPhase(Phase.WAITING_FOR_PARTY);
             } else {
-                debug("Zakum travel failed.");
-
-                resetTravelState();
-
-                if (chr.getMapId() == ZAKUM_DOOR_MAP) {
-                    enterPhase(Phase.WAITING_FOR_PARTY);
-                } else {
-                    enterPhase(Phase.WAITING_FOR_EXPEDITION);
-                }
+                enterPhase(Phase.WAITING_FOR_EXPEDITION);
             }
 
             return;
         }
 
-        if (now() > travelDeadlineMs) {
-            debug("Zakum travel timed out.");
-
+        if (travelStarted && now() > travelDeadlineMs) {
+            debug("Zakum travel timed out at map " + chr.getMapId());
             GCMovement.cancelTravel(chr);
             resetTravelState();
 
@@ -380,7 +437,9 @@ public class ZakumBot extends BotSM {
                 enterPhase(Phase.WAITING_FOR_EXPEDITION);
             }
         }
-    }private void beginTravelTo(int destinationMapId) {
+    }
+
+    private void beginTravelTo(int destinationMapId) {
         Character chr = getChr();
         if (chr == null || chr.getMap() == null) return;
 
@@ -428,10 +487,15 @@ public class ZakumBot extends BotSM {
 
     private void doFightingZakum() {
         Character chr = getChr();
-        if (chr == null) return;
+
+        if (chr == null) {
+            ACTIVE_ZAKUM_BOTS.remove(this);
+            return;
+        }
 
         if (!isInZakumBossMap(chr)) {
             ACTIVE_ZAKUM_BOTS.remove(this);
+            debug("Left Zakum boss map.");
             enterPhase(Phase.FINISHED);
             return;
         }
@@ -474,11 +538,12 @@ public class ZakumBot extends BotSM {
     }
 
     private boolean hasLivingZakumMob(Character chr) {
-        if (chr.getMap() == null) return false;
+        if (chr == null || chr.getMap() == null) return false;
 
         for (Monster mob : chr.getMap().getAllMonsters()) {
             if (mob != null && isZakumMob(mob.getId())) return true;
         }
+
         return false;
     }
 
@@ -491,21 +556,39 @@ public class ZakumBot extends BotSM {
 
     private void pollRecruitInvite() {
         Character chr = getChr();
-        if (chr == null || !BotPartyQueue.getInstance().hasPendingInvite(chr))
+        if (chr == null || chr.getParty() != null) return;
+
+        BotPartyQueue.PartyInviteEntry entry =
+                BotPartyQueue.getInstance().getPartyInvite(chr);
+
+        if (entry == null) return;
+
+        Character recruiter = entry.getInviter();
+
+        if (recruiter == null) {
+            debug("Zakum party invite has no recruiter: " + chr.getName());
+            BotPartyQueue.getInstance().removePartyInvite(chr);
             return;
+        }
 
-        int recruiterId = BotRecruitManager.armedInviterId(chr.getId());
-        BotRecruitManager.InvitePoll result =
-                BotRecruitManager.pollInvites(chr);
+        debug("Zakum party invite received: bot=" + chr.getName()
+                + " recruiter=" + recruiter.getName()
+                + " partyId=" + entry.getPartyId());
 
-        if (result != BotRecruitManager.InvitePoll.JOINED) return;
+        boolean joined = BotPartyCommands.botAcceptPartyInvite(chr);
 
-        recruitedPlayerId = recruiterId;
+        if (!joined) {
+            debug("Zakum bot failed to join party: bot=" + chr.getName()
+                    + " recruiter=" + recruiter.getName()
+                    + " partyId=" + entry.getPartyId());
+            return;
+        }
 
-        Character recruiter = chr.getClient()
-                .getChannelServer()
-                .getPlayerStorage()
-                .getCharacterById(recruiterId);
+        recruitedPlayerId = recruiter.getId();
+
+        debug("Zakum bot joined party: bot=" + chr.getName()
+                + " recruiter=" + recruiter.getName()
+                + " partyId=" + entry.getPartyId());
 
         sayRecruit("PartyJoined", recruiter);
     }
@@ -551,8 +634,8 @@ public class ZakumBot extends BotSM {
 
         super.stopScheduledTask();
 
-        log("[ZakumBot] stopped: " +
-                (chr != null ? chr.getName() : "?"));
+        log("[ZakumBot] stopped: "
+                + (chr != null ? chr.getName() : "?"));
     }
 
     private long now() {
@@ -582,20 +665,36 @@ public class ZakumBot extends BotSM {
 
     private void sayRecruit(String node, Character player) {
         Character chr = getChr();
-        if (chr == null || chr.getMap() == null || player == null) return;
+        if (chr == null || chr.getMap() == null || player == null) {
+            debug("sayRecruit aborted: chr/player/map missing. node=" + node);
+            return;
+        }
+
+        debug("Attempting dialogue: file=" + dialoguePath + " botType=" + botType + " node=" + node + " target=" + player.getName());
 
         try {
-            String line = soloMapling.ArtificialPlayer.BotDialogueHandler
-                    .getRandomResolvedLine(
-                            dialoguePath,
-                            botType,
-                            node,
-                            chr,
-                            player
-                    );
+            String line = soloMapling.ArtificialPlayer.BotDialogueHandler.getRandomResolvedLine(
+                    dialoguePath,
+                    botType,
+                    node,
+                    chr,
+                    player
+            );
 
-            if (line != null) BotSpeak(chr, line);
-        } catch (Exception ignored) {}
+            if (line == null || line.trim().isEmpty()) {
+                debug("Dialogue returned null/empty: file=" + dialoguePath + " node=" + node);
+                return;
+            }
+
+            debug("Dialogue resolved: node=" + node + " line=\"" + line + "\"");
+
+            BotSpeak(chr, line);
+            debug("BotSpeak executed: node=" + node);
+
+        } catch (Throwable t) {
+            debug("Dialogue ERROR: file=" + dialoguePath + " botType=" + botType + " node=" + node + " error=" + t);
+            t.printStackTrace();
+        }
     }
 
     @Override
@@ -606,3 +705,4 @@ public class ZakumBot extends BotSM {
         return false;
     }
 }
+

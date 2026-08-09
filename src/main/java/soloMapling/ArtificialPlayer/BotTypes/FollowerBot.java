@@ -13,6 +13,8 @@ import soloMapling.ArtificialPlayer.BotPartySystem.BotPartyQueue;
 import soloMapling.ArtificialPlayer.BotPartySystem.BotRecruitManager;
 import soloMapling.ArtificialPlayer.GCMoveSystem.GCMovement;
 import soloMapling.server.BotTickService;
+import static soloMapling.DebugUtilities.debugprint;
+
 
 import java.util.List;
 
@@ -78,22 +80,38 @@ public class FollowerBot extends BotSM {
     @Override
     public void updateState() {
         super.updateState();
+
         if (checkIfNotRunningOrPaused()) {
             return;
         }
+
         Character chr = getChr();
+
         if (chr == null || chr.getMap() == null) {
             return;
         }
+
         if (getState() == BotState.TRADING) {
-            // Trades are sacred: halt the follow session so the bot doesn't walk out of the trade.
             if (!pausedForTrade) {
                 pausedForTrade = true;
                 GCMovement.stop(chr);
             }
             return;
         }
+
         pausedForTrade = false;
+
+        /*
+         * Party invitations must be processed BEFORE the follower FSM.
+         *
+         * Otherwise doInit() can see leaderId == -1 and convert the bot away
+         * before it ever gets a chance to accept the invitation.
+         */
+        pollLeaderInvite();
+
+        if (!getRunning()) {
+            return;
+        }
 
         switch (followPhase) {
             case INIT -> doInit();
@@ -102,10 +120,10 @@ public class FollowerBot extends BotSM {
         }
 
         if (!getRunning()) {
-            return; // a phase converted this bot away mid-tick
+            return;
         }
-        pollLeaderInvite();
-        menu.poll(); // last: a selection may also convert this bot away
+
+        menu.poll();
     }
 
     // An unpartied follower (e.g. via !bot followbot) accepts a party invite from its OWN leader -
@@ -113,6 +131,10 @@ public class FollowerBot extends BotSM {
     // first-wins-free queue never holds a rotting entry.
     private void pollLeaderInvite() {
         Character chr = getChr();
+
+        if (chr == null || chr.getParty() != null) {
+            return;
+        }
 
         BotPartyQueue.PartyInviteEntry entry =
                 BotPartyQueue.getInstance().getPartyInvite(chr);
@@ -125,44 +147,54 @@ public class FollowerBot extends BotSM {
 
         debugprint(
                 "[FollowerBot] PARTY INVITE: bot=" + chr.getName()
-                        + " leaderId=" + leaderId
                         + " inviter=" + (inviter == null ? "null" : inviter.getName())
                         + " inviterId=" + (inviter == null ? -1 : inviter.getId())
                         + " partyId=" + entry.getPartyId()
-                        + " currentParty=" + (chr.getParty() == null ? "null" : chr.getParty().getId())
         );
 
-        if (chr.getParty() != null) {
-            debugprint(
-                    "[FollowerBot] rejecting queued invite because bot is already "
-                            + "in party: " + chr.getName()
-            );
-            BotPartyCommands.botRejectPartyInvite(chr);
+        if (inviter == null) {
+            BotPartyQueue.getInstance().removePartyInvite(chr);
             return;
         }
 
-        if (inviter != null && inviter.getId() == leaderId) {
-            debugprint(
-                    "[FollowerBot] accepting invite from leader: "
-                            + inviter.getName()
-            );
+        /*
+         * Do NOT require inviter.getId() == leaderId here.
+         *
+         * A normal player can invite a bot before the bot has a follower
+         * relationship with that player. The queued invitation itself is
+         * sufficient authorization to accept the party invitation.
+         */
+        if (BotPartyCommands.botAcceptPartyInvite(chr)) {
+            wasPartied = true;
 
-            if (BotPartyCommands.botAcceptPartyInvite(chr)) {
-                wasPartied = true;
-                sayNode("PartyJoined", inviter);
+            /*
+             * If this bot doesn't already have a follower leader, the player
+             * who successfully recruited it becomes the leader.
+             */
+            if (leaderId <= 0) {
+                leaderId = inviter.getId();
+
+                debugprint(
+                        "[FollowerBot] assigned party inviter as leader: bot="
+                                + chr.getName()
+                                + " leaderId=" + leaderId
+                );
             }
 
-            return;
+            sayNode("PartyJoined", inviter);
+
+            debugprint(
+                    "[FollowerBot] PARTY JOIN SUCCESS: bot="
+                            + chr.getName()
+                            + " partyId=" + entry.getPartyId()
+            );
+        } else {
+            debugprint(
+                    "[FollowerBot] PARTY JOIN FAILED: bot="
+                            + chr.getName()
+                            + " partyId=" + entry.getPartyId()
+            );
         }
-
-        debugprint(
-                "[FollowerBot] rejecting invite: inviter is not leader. "
-                        + "bot=" + chr.getName()
-                        + " leaderId=" + leaderId
-                        + " inviterId=" + (inviter == null ? -1 : inviter.getId())
-        );
-
-        BotPartyCommands.botRejectPartyInvite(chr);
     }
     // ── Phases ───────────────────────────────────────────────────────────────
 

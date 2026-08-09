@@ -26,28 +26,25 @@ public class BotPartyQueue {
         }
     }
 
-    private final ConcurrentHashMap<Integer, PartyInviteEntry> queues;
+    /*
+     * Key by character ID, not Character reference.
+     *
+     * Bots can be recreated/relogged, so using Character itself as the key
+     * can leave an invitation attached to an old Character instance.
+     */
+    private final ConcurrentHashMap<Integer, PartyInviteEntry> queues =
+            new ConcurrentHashMap<>();
+
     private static final BotPartyQueue instance = new BotPartyQueue();
 
     private BotPartyQueue() {
-        queues = new ConcurrentHashMap<>();
     }
 
     public static BotPartyQueue getInstance() {
         return instance;
     }
 
-    /**
-     * Store the latest party invitation for this bot.
-     *
-     * The bot ID is used as the key instead of the Character object so
-     * the queue remains valid if the bot Character reference changes.
-     */
-    public void addPartyInvite(
-            Character fakechar,
-            Character inviter,
-            int partyId
-    ) {
+    public void addPartyInvite(Character fakechar, Character inviter, int partyId) {
         if (fakechar == null || inviter == null) {
             return;
         }
@@ -58,7 +55,8 @@ public class BotPartyQueue {
         );
 
         debugprint(
-                "addPartyInvite: bot=" + fakechar.getName()
+                "BotPartyQueue: STORED invite"
+                        + " bot=" + fakechar.getName()
                         + " botId=" + fakechar.getId()
                         + " inviter=" + inviter.getName()
                         + " inviterId=" + inviter.getId()
@@ -68,9 +66,6 @@ public class BotPartyQueue {
         BotRecruitManager.wakeBotForInvite(fakechar);
     }
 
-    /**
-     * Get the pending invitation for this bot.
-     */
     public PartyInviteEntry getPartyInvite(Character fakechar) {
         if (fakechar == null) {
             return null;
@@ -79,22 +74,14 @@ public class BotPartyQueue {
         return queues.get(fakechar.getId());
     }
 
-    /**
-     * Check whether this bot has a pending invitation.
-     */
     public boolean hasPendingInvite(Character fakechar) {
         return fakechar != null
                 && queues.containsKey(fakechar.getId());
     }
 
-    /**
-     * Remove this bot's pending invitation.
-     */
     public void removePartyInvite(Character fakechar) {
-        if (fakechar == null) {
-            return;
+        if (fakechar != null) {
+            queues.remove(fakechar.getId());
         }
-
-        queues.remove(fakechar.getId());
     }
 }

@@ -132,18 +132,64 @@ public class BotDialogueHandler {
         String dialoguePackBase = "src/main/java/soloMapling/ArtificialPlayer/BotDialoguePack/";
         String filePath = String.format("%s%s", dialoguePackBase, dialoguePack);
 
-        Map<String, Object> dialogueConstructorNode = null;
         try {
             YamlReader reader = new YamlReader(new FileReader(filePath));
 
-            // Read the root node
             Map<String, Object> root = (Map<String, Object>) reader.read();
-            Map<String, Object> BotTypeNode = (Map<String, Object>) root.get(dialogueType);
-            dialogueConstructorNode = (Map<String, Object>) BotTypeNode.get(dialogueNode);
+
+            System.out.println(
+                    "[BOT DIALOGUE DEBUG] "
+                            + "file=" + filePath
+                            + " botType=" + dialogueType
+                            + " node=" + dialogueNode
+                            + " rootKeys=" + (root != null ? root.keySet() : "NULL")
+            );
+
+            if (root == null) {
+                System.err.println(
+                        "[BOT DIALOGUE ERROR] YAML root is NULL: "
+                                + filePath
+                );
+                return null;
+            }
+
+            Object rawBotTypeNode = root.get(dialogueType);
+
+            if (!(rawBotTypeNode instanceof Map)) {
+                System.err.println(
+                        "[BOT DIALOGUE ERROR] Bot type not found in YAML. "
+                                + "requestedType=" + dialogueType
+                                + " availableTypes=" + root.keySet()
+                                + " file=" + filePath
+                );
+                return null;
+            }
+
+            Map<String, Object> botTypeNode = (Map<String, Object>) rawBotTypeNode;
+
+            Object rawDialogueNode = botTypeNode.get(dialogueNode);
+
+            if (!(rawDialogueNode instanceof Map)) {
+                System.err.println(
+                        "[BOT DIALOGUE ERROR] Dialogue node not found. "
+                                + "botType=" + dialogueType
+                                + " requestedNode=" + dialogueNode
+                                + " availableNodes=" + botTypeNode.keySet()
+                                + " file=" + filePath
+                );
+                return null;
+            }
+
+            return (Map<String, Object>) rawDialogueNode;
+
         } catch (IOException e) {
+            System.err.println(
+                    "[BOT DIALOGUE ERROR] Failed to read YAML: "
+                            + filePath
+            );
             e.printStackTrace();
+            return null;
         }
-        return dialogueConstructorNode;
     }
 
     public static DialogueConstructor getDialogueCon(String BotTypeDialoguePath, String BotType, String DialogueNodeName) {
@@ -186,8 +232,22 @@ public class BotDialogueHandler {
         return any;
     }
 
-    public static DialogueConstructor getDialogueConWithReplacedStrings(String BotTypeDialoguePath, String BotType, String DialogueNodeName, Map<String, String> replacements) {
-        DialogueConstructor og = getDialogueCon(BotTypeDialoguePath, BotType, DialogueNodeName);
+    public static DialogueConstructor getDialogueConWithReplacedStrings(
+            String BotTypeDialoguePath,
+            String BotType,
+            String DialogueNodeName,
+            Map<String, String> replacements) {
+
+        DialogueConstructor og = getDialogueCon(
+                BotTypeDialoguePath,
+                BotType,
+                DialogueNodeName
+        );
+
+        if (og == null) {
+            return null;
+        }
+
         og.setDialogue(replaceStrings(og.getDialogue(), replacements));
         return og;
     }
