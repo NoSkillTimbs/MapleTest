@@ -44,22 +44,39 @@ public class BotPartyQueue {
     // a bot answering with the stale entry's old partyId hit NOT_FOUND at the coordinator -
     // leaving the player's live invite wedged ("taking care of another invitation") for 3 min.
     public void addPartyInvite(Character fakechar, Character inviter, int partyId) {
-        debugprint("addPartyInvite: bot=" + fakechar.getName() + ", inviter=" + inviter.getName() + ", partyId=" + partyId);
-        queues.put(fakechar, new PartyInviteEntry(inviter, partyId));
-        // Wake the bot's macro brain now so pollInvites drains this on the next ~immediate tick,
-        // rather than waiting out its slow scheduled cadence while the armed window ticks away.
+        if (fakechar == null) {
+            debugprint("addPartyInvite: fakechar is null.");
+            return;
+        }
+
+        if (inviter == null) {
+            debugprint(
+                    "addPartyInvite: inviter is null for bot="
+                            + fakechar.getName()
+                            + ", partyId=" + partyId
+            );
+            return;
+        }
+
+        PartyInviteEntry entry = new PartyInviteEntry(inviter, partyId);
+
+        queues.put(fakechar, entry);
+
+        debugprint(
+                "addPartyInvite: STORED invite"
+                        + " bot=" + fakechar.getName()
+                        + " botId=" + fakechar.getId()
+                        + " inviter=" + inviter.getName()
+                        + " inviterId=" + inviter.getId()
+                        + " partyId=" + partyId
+        );
+
+        debugprint(
+                "addPartyInvite: waking bot "
+                        + fakechar.getName()
+        );
+
         BotRecruitManager.wakeBotForInvite(fakechar);
-    }
 
-    public PartyInviteEntry getPartyInvite(Character fakechar) {
-        return queues.get(fakechar);
-    }
-
-    public boolean hasPendingInvite(Character fakechar) {
-        return queues.containsKey(fakechar);
-    }
-
-    public void removePartyInvite(Character fakechar) {
-        queues.remove(fakechar);
     }
 }

@@ -1234,18 +1234,32 @@ public class EnvironmentManager {
         }
 
         Point anchor = map.getPortal(0).getPosition();
+
+        // Pick actual walkable ground positions instead of using the portal
+        // position for every bot.
+        List<Point> spots = BotSpotPicker.pickGroundSpots(
+                map,
+                anchor.x,
+                anchor.y,
+                count
+        );
+
         List<Integer> ids = new ArrayList<>();
 
         for (int i = 0; i < count; i++) {
+            Point spawnAt = i < spots.size()
+                    ? spots.get(i)
+                    : anchor;
+
             try {
                 int baseClass = BotDecorate.rollBaseClass();
 
                 int botId = BotGeneration.createBot(
-                        anchor,
+                        spawnAt,
                         map,
                         baseClass,
                         100,
-                        170
+                        150
                 );
 
                 if (botId > 0) {
@@ -1254,8 +1268,9 @@ public class EnvironmentManager {
 
             } catch (Exception e) {
                 debugprint(fmt(
-                        "ZakumBots: create failed on {} ({})",
+                        "ZakumBots: create failed on {} at {} ({})",
                         ZAKUM_DOOR,
+                        spawnAt,
                         e.getMessage()
                 ));
             }
@@ -1269,12 +1284,10 @@ public class EnvironmentManager {
         }
 
         debugprint(fmt(
-                "ZakumBots: {} spawned in Door to Zakum ({})",
-                ids.size(),
-                ZAKUM_DOOR
+                "ZakumBots: {} spawned in Door to Zakum",
+                ids.size()
         ));
 
         return ids.size();
     }
-
 }

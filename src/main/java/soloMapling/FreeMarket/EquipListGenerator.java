@@ -206,9 +206,7 @@ public class EquipListGenerator {
             if (special != null) {
                 valid.add(special);
             }
-        }
-        for (int id : UniqueEquipList.getItems()) {
-            System.out.println(id);
+
         }
         for (EquipMetadataCache.EquipEntry e : candidates) {
 
