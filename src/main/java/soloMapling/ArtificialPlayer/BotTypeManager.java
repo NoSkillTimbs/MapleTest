@@ -1,5 +1,4 @@
-```java
-        package soloMapling.ArtificialPlayer;
+package soloMapling.ArtificialPlayer;
 
 import client.Character;
 import client.Client;
@@ -26,10 +25,12 @@ import soloMapling.ArtificialPlayer.BotTypes.TownWandererBot;
 import soloMapling.ArtificialPlayer.BotTypes.TrainingBot;
 import soloMapling.ArtificialPlayer.BotTypes.FollowerBot;
 import soloMapling.ArtificialPlayer.BotTypes.ZakumBot;
+import soloMapling.ArtificialPlayer.BotSM;
 
 import java.awt.Point;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
+
 
 import static soloMapling.ArtificialPlayer.BotMessagingSystem.CharacterStorage.getBotById;
 import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.FM_BOT;
@@ -200,19 +201,19 @@ public class BotTypeManager {
             }
         },
 
-        ZAKUM_BOT {
-            @Override
-            public void createAndSetBot(Character character) {
-                ZakumBot bot = new ZakumBot(character);
-                CharacterStorage.addActiveBot(character.getId(), bot);
-            }
-        },
-
         FOLLOWER_BOT {
             @Override
             public void createAndSetBot(Character character) {
                 FollowerBot bot = new FollowerBot(character);
                 CharacterStorage.addActiveBot(character.getId(), bot);
+            }
+
+        },
+        ZAKUM_BOT {
+            @Override
+            public void createAndSetBot(Character character) {
+                ZakumBot zakumBot = new ZakumBot(character);
+                CharacterStorage.addActiveBot(character.getId(), zakumBot);
             }
         };
 
@@ -271,7 +272,7 @@ public class BotTypeManager {
 
         bot.setRunning(true);
         bot.startScheduledTask(2000L);
-    }
+    },
 
     // Re-type a live bot in place.
     public static boolean convertBotType(
@@ -290,6 +291,23 @@ public class BotTypeManager {
                         "convertBotType: refused, bot is mid-trade: "
                                 + fakechar.getName()
                 );
+                return false;
+            }
+
+            manuallyStopBot(fakechar);
+        }
+
+        botType.createAndSetBot(fakechar);
+        manuallyStartBot(fakechar);
+
+        return true;
+    }
+    public static boolean convertBotType(Character fakechar, BotType botType) {
+        BotSM existing = getBotById(fakechar.getId());
+
+        if (existing != null) {
+            if (existing.getState() == BotSM.BotState.TRADING) {
+                debugprint("convertBotType: refused, bot is mid-trade: " + fakechar.getName());
                 return false;
             }
 

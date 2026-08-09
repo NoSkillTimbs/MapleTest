@@ -28,10 +28,12 @@ import soloMapling.ArtificialPlayer.BotPartySystem.BotRecruitManager;
 import soloMapling.ArtificialPlayer.BotMessagingSystem.QueueMonitor;
 import soloMapling.ArtificialPlayer.BotGeneration;
 import soloMapling.ArtificialPlayer.BotHelpers;
+import soloMapling.ArtificialPlayer.BotHelpers;
 import soloMapling.ArtificialPlayer.BotSM;
 import soloMapling.ArtificialPlayer.BotTypeManager;
 import soloMapling.ArtificialPlayer.SocialHotPotatoManager;
 import soloMapling.server.ExecutorServiceManager;
+import soloMapling.ArtificialPlayer.BotTypes.ZakumBot;
 
 import java.awt.*;
 import java.util.ArrayList;
@@ -46,7 +48,6 @@ import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotCha
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.displayPlayerChatCommands;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.expirePlayerChatCommands;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.BotSpeak;
-import static soloMapling.ArtificialPlayer.BotCommandsPack.SocialCommands.displayPlayerChatCommands;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.DropCommands.botThrowToOwnerMeso;
 import static soloMapling.ArtificialPlayer.BotCommandsPack.WarpCommands.botWarpMapOnPortal;
 import static soloMapling.ArtificialPlayer.BotCustomization.EquipBot;
@@ -73,7 +74,7 @@ import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.DROP_GAME_BOT;
 import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.HENESYS_JQ_BOT;
 import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.TUTORIAL_BOT;
 import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.TEST_ATTACK_BOT;
-import static soloMapling.ArtificialPlayer.BotTypeManager.convertBotType;
+import static soloMapling.ArtificialPlayer.BotTypeManager.BotType.ZAKUM_BOT;
 import static soloMapling.ArtificialPlayer.BotTypeManager.manuallyStartBot;
 import static soloMapling.ArtificialPlayer.BotTypeManager.manuallyStopBot;
 import static soloMapling.DebugUtilities.debugprint;
@@ -416,7 +417,11 @@ public class ArtificialPlayerCommand extends Command {
                     player.yellowMessage("Pending invite: from=" + entry.getInviter().getName() + " partyId=" + entry.getPartyId());
                 }
                 break;
-
+            case "zakumbot":
+            case "zakum":
+                ZAKUM_BOT.createAndSetBot(fakechar);
+                player.yellowMessage("Bot " + fakechar.getName() + " is now a ZakumBot.");
+                break;
             default:
                 player.yellowMessage("Invalid command - NumberedCommand");
                 break;
@@ -975,6 +980,7 @@ public class ArtificialPlayerCommand extends Command {
         player.yellowMessage("!bot testslotinfo                - test equip by slot");
         player.yellowMessage("!bot viewqueue                   - monitor message queue");
         player.yellowMessage("!bot nxcode                      - create test NX code");
+        player.yellowMessage("!bot zakumbot <cid>            - set as Zakum bot");
     }
 
     private static void testEquipDestinationSlot(Character chr, int itemId) {
