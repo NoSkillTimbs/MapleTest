@@ -113,21 +113,57 @@ public class FollowerBot extends BotSM {
     // first-wins-free queue never holds a rotting entry.
     private void pollLeaderInvite() {
         Character chr = getChr();
-        if (!BotPartyQueue.getInstance().hasPendingInvite(chr)) {
+
+        BotPartyQueue.PartyInviteEntry entry =
+                BotPartyQueue.getInstance().getPartyInvite(chr);
+
+        if (entry == null) {
             return;
         }
-        BotPartyQueue.PartyInviteEntry entry = BotPartyQueue.getInstance().getPartyInvite(chr);
-        Character inviter = entry == null ? null : entry.getInviter();
-        if (inviter != null && inviter.getId() == leaderId && chr.getParty() == null) {
+
+        Character inviter = entry.getInviter();
+
+        debugprint(
+                "[FollowerBot] PARTY INVITE: bot=" + chr.getName()
+                        + " leaderId=" + leaderId
+                        + " inviter=" + (inviter == null ? "null" : inviter.getName())
+                        + " inviterId=" + (inviter == null ? -1 : inviter.getId())
+                        + " partyId=" + entry.getPartyId()
+                        + " currentParty=" + (chr.getParty() == null ? "null" : chr.getParty().getId())
+        );
+
+        if (chr.getParty() != null) {
+            debugprint(
+                    "[FollowerBot] rejecting queued invite because bot is already "
+                            + "in party: " + chr.getName()
+            );
+            BotPartyCommands.botRejectPartyInvite(chr);
+            return;
+        }
+
+        if (inviter != null && inviter.getId() == leaderId) {
+            debugprint(
+                    "[FollowerBot] accepting invite from leader: "
+                            + inviter.getName()
+            );
+
             if (BotPartyCommands.botAcceptPartyInvite(chr)) {
                 wasPartied = true;
                 sayNode("PartyJoined", inviter);
             }
+
             return;
         }
+
+        debugprint(
+                "[FollowerBot] rejecting invite: inviter is not leader. "
+                        + "bot=" + chr.getName()
+                        + " leaderId=" + leaderId
+                        + " inviterId=" + (inviter == null ? -1 : inviter.getId())
+        );
+
         BotPartyCommands.botRejectPartyInvite(chr);
     }
-
     // ── Phases ───────────────────────────────────────────────────────────────
 
     private void doInit() {
