@@ -4,15 +4,15 @@
 worlds:
     #Properties for Scania 0
   - flag: 0
-    server_message: Wow
-    event_message: Wow!
+    server_message: Welcome to Scania!
+    event_message: Scania!
     why_am_i_recommended: Welcome to Scania!
     channels: 3
-    exp_rate: 5
-    meso_rate: 5
-    drop_rate: 2
-    boss_drop_rate: 2                      #NOTE: Boss drop rate OVERRIDES common drop rate, for bosses-only.
-    quest_rate: 10                           #Multiplier for Exp & Meso gains when completing a quest. Only available when USE_QUEST_RATE is true. Stacks with server Exp & Meso rates.
+    exp_rate: 10
+    meso_rate: 10
+    drop_rate: 10
+    boss_drop_rate: 10                      #NOTE: Boss drop rate OVERRIDES common drop rate, for bosses-only.
+    quest_rate: 5                           #Multiplier for Exp & Meso gains when completing a quest. Only available when USE_QUEST_RATE is true. Stacks with server Exp & Meso rates.
     fishing_rate: 10                        #Multiplier for success likelihood on meso thrown during fishing.
     travel_rate: 10                         #Means of transportation rides/departs using 1/N of the default time.
 
@@ -169,10 +169,10 @@ server:
     WORLDS: 1                           #Initial number of worlds on the server.
     WLDLIST_SIZE: 21                    #Max possible worlds on the server.
     CHANNEL_SIZE: 20                    #Max possible channels per world (which is 20, based on the channel list on login phase).
-    CHANNEL_LOAD: 100                   #Max players per channel (limit actually used to calculate the World server capacity).
+    CHANNEL_LOAD: 2000                   #Max players per channel (limit actually used to calculate the World server capacity).
     CHANNEL_LOCKS: 20                   #Total number of structure management locks each channel has.
 
-    RESPAWN_INTERVAL: 5000             #10 seconds, 10000.
+    RESPAWN_INTERVAL: 4000              #SoloMapling respawn experiment: 5s pass (was 10000) - see Fable Plan 2026-07-07. git revert to restore stock.
     PURGING_INTERVAL: 300000            #5 minutes, 300000.
     RANKING_INTERVAL: 3600000           #60 minutes, 3600000.
     COUPON_INTERVAL: 3600000            #60 minutes, 3600000.
@@ -203,6 +203,7 @@ server:
 
     #Other configuration
     SHUTDOWNHOOK: true
+    SPAWN_BOTS_ON_STARTUP: true         #SoloMapling: auto-populate the world with bots on server startup (no player/relog needed). Set false to disable bot spawning.
 
     #Server Flags
     USE_CUSTOM_KEYSET: false             #Enables auto-setup of the HeavenMS's custom keybindings when creating characters.
@@ -250,7 +251,7 @@ server:
     USE_ENFORCE_MDOOR_POSITION: false   #Forces mystic door to be spawned near spawnpoints.
     USE_SPAWN_CLEAN_MDOOR: false         #Makes mystic doors to be spawned without deploy animation. This clears disconnecting issues that may happen when trying to cancel doors a couple seconds after deployment.
     USE_SPAWN_RELEVANT_LOOT: true       #Forces to only spawn loots that are collectable by the player or any of their party members.
-    USE_ERASE_PERMIT_ON_OPENSHOP: true  #Forces "shop permit" item to be consumed when player deploy his/her player shop.
+    USE_ERASE_PERMIT_ON_OPENSHOP: false  #Forces "shop permit" item to be consumed when player deploy his/her player shop.
     USE_ERASE_UNTRADEABLE_DROP: true    #Forces flagged untradeable items to disappear when dropped.
     USE_ERASE_PET_ON_EXPIRATION: false  #Forces pets to be removed from inventory when expire time comes, rather than converting it to a doll.
     USE_BUFF_MOST_SIGNIFICANT: true     #When applying buffs, the player will stick with the highest stat boost among the listed, rather than overwriting stats.
@@ -283,6 +284,10 @@ server:
     USE_MAKER_PERMISSIVE_ATKUP: false    #Allows players to use attack-based strengthening gems on non-weapon items.
     USE_MAKER_FEE_HEURISTICS: true      #Apply compiled values for stimulants and reagents into the Maker fee calculations (max error revolves around 50k mesos). Set false to use basic constant values instead (results are never higher than requested by the client-side).
 
+    #Custom Configuration
+    USE_ENABLE_CUSTOM_NPC_SCRIPT: false  #Enables usage of custom HeavenMS NPC scripts (Agent E, Coco, etc). Will not disable Abdula (it's actually useful for the gameplay) or quests.
+    USE_STARTER_MERGE: false            #Allows any players to use the Equipment Merge custom mechanic (as opposed to the high-level, Maker lv3 requisites).
+
     #Commands Configuration
     BLOCK_GENERATE_CASH_ITEM: false     #Prevents creation of cash items with the item/drop command.
     USE_WHOLE_SERVER_RANKING: false     #Enables a ranking pool made from every character registered on the server for the "ranks" command, instead of separated by worlds.
@@ -290,11 +295,11 @@ server:
     EQUIP_EXP_RATE: 1.0                  #Rate for equipment exp gain, grows linearly. Set 1.0 for default (about 100~200 same-level range mobs killed to pass equip from level 1 to 2).
     PQ_BONUS_EXP_RATE: 1.0               #Rate for the PQ exp reward.
 
-    EXP_SPLIT_LEVEL_INTERVAL: 5            #Non-contributing players must be within N level between the mob to receive EXP.
-    EXP_SPLIT_LEECH_INTERVAL: 45            #Non-contributing players must be within N level between any contributing party member to receive EXP.
+    EXP_SPLIT_LEVEL_INTERVAL: 100            #Non-contributing players must be within N level between the mob to receive EXP.
+    EXP_SPLIT_LEECH_INTERVAL: 100            #Non-contributing players must be within N level between any contributing party member to receive EXP.
     EXP_SPLIT_MVP_MOD: 0.2
     EXP_SPLIT_COMMON_MOD: 0.8
-    PARTY_BONUS_EXP_RATE: 2.0            #Rate for the party exp bonus reward.
+    PARTY_BONUS_EXP_RATE: 2.0                #Rate for the party exp bonus reward.
 
     #Miscellaneous Configuration
     TIMEZONE: GMT
@@ -343,7 +348,7 @@ server:
     CHSCROLL_STAT_RANGE: 15              #Stat upgrade range (-N, N) on chaos scrolls.
 
     #Beginner Skills Configuration
-    USE_ULTRA_NIMBLE_FEET: false     #Massive speed & jump upgrade.
+    USE_ULTRA_NIMBLE_FEET: true     #Massive speed & jump upgrade.
     USE_ULTRA_RECOVERY: false        #Massive recovery amounts overtime.
     USE_ULTRA_THREE_SNAILS: false    #Massive damage on shell toss.
 

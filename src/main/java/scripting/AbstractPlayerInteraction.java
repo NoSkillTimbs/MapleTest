@@ -961,14 +961,27 @@ public class AbstractPlayerInteraction {
 
     public void spawnNpc(int npcId, Point pos, MapleMap map) {
         NPC npc = LifeFactory.getNPC(npcId);
+
+        System.out.println("SPAWN NPC REQUEST: " + npcId);
+
         if (npc != null) {
+            System.out.println("NPC CREATED: " + npcId);
+
             npc.setPosition(pos);
             npc.setCy(pos.y);
             npc.setRx0(pos.x + 50);
             npc.setRx1(pos.x - 50);
-            npc.setFh(map.getFootholds().findBelow(pos).getId());
+
+            if (map.getFootholds().findBelow(pos) != null) {
+                npc.setFh(map.getFootholds().findBelow(pos).getId());
+            }
+
             map.addMapObject(npc);
             map.broadcastMessage(PacketCreator.spawnNPC(npc));
+
+            System.out.println("NPC SPAWNED ON MAP: " + npcId);
+        } else {
+            System.out.println("NPC FAILED: " + npcId);
         }
     }
 

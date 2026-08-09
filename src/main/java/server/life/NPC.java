@@ -26,6 +26,8 @@ import server.ShopFactory;
 import server.maps.MapObjectType;
 import tools.PacketCreator;
 
+import static soloMapling.server.MapleVersionManager.isNPCinCurrentVersion;
+
 public class NPC extends AbstractLoadedLife {
     private final NPCStats stats;
 

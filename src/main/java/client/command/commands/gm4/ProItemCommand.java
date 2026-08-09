@@ -18,11 +18,36 @@ public class ProItemCommand extends Command {
     @Override
     public void execute(Client c, String[] params) {
 
-        Character player = c.getPlayer();
+        if (params.length < 1) {
+            c.getPlayer().yellowMessage(
+                    "Syntax: !proitem [player] <itemid> str=30 watk=50 hp=300 jump=5 slots=7");
+            return;
+        }
 
-        if (params.length < 2) {
-            player.yellowMessage("Syntax:");
-            player.yellowMessage("!proitem <itemid> str=30 watk=50 hp=300 jump=5 slots=7");
+        Character executor = c.getPlayer();
+        Character target = executor;
+
+        int index = 0;
+
+        // If first parameter isn't a number, assume it's a player name.
+        try {
+            Integer.parseInt(params[0]);
+        } catch (NumberFormatException e) {
+            target = c.getWorldServer()
+                    .getPlayerStorage()
+                    .getCharacterByName(params[0]);
+
+            if (target == null) {
+                executor.yellowMessage("Player '" + params[0] + "' is not online.");
+                return;
+            }
+
+            index = 1;
+        }
+
+        if (params.length < index + 2) {
+            executor.yellowMessage(
+                    "Syntax: !proitem [player] <itemid> str=30 watk=50 hp=300 jump=5 slots=7");
             return;
         }
 
@@ -31,26 +56,26 @@ public class ProItemCommand extends Command {
         int itemId;
 
         try {
-            itemId = Integer.parseInt(params[0]);
+            itemId = Integer.parseInt(params[index]);
         } catch (NumberFormatException e) {
-            player.yellowMessage("Invalid item id.");
+            executor.yellowMessage("Invalid item id.");
             return;
         }
 
         if (ii.getName(itemId) == null) {
-            player.yellowMessage("Item does not exist.");
+            executor.yellowMessage("Item does not exist.");
             return;
         }
 
         if (ItemConstants.getInventoryType(itemId) != InventoryType.EQUIP) {
-            player.yellowMessage("Item must be an equip.");
+            executor.yellowMessage("Item must be an equip.");
             return;
         }
 
         Equip equip = (Equip) ii.getEquipById(itemId);
         equip.setOwner("");
 
-        for (int i = 1; i < params.length; i++) {
+        for (int i = index + 1; i < params.length; i++) {
 
             String[] split = params[i].split("=");
 
@@ -136,9 +161,15 @@ public class ProItemCommand extends Command {
         }
 
         // Leave the flags untouched so the item remains tradeable.
-        InventoryManipulator.addFromDrop(c, equip);
+        InventoryManipulator.addFromDrop(target.getClient(), equip);
 
-        player.yellowMessage("Created: " + ii.getName(itemId));
+        if (target == executor) {
+            executor.yellowMessage("Created: " + ii.getName(itemId));
+        } else {
+            executor.yellowMessage("Created " + ii.getName(itemId)
+                    + " for " + target.getName() + ".");
+            target.yellowMessage("You received a custom "
+                    + ii.getName(itemId) + " from " + executor.getName() + ".");
+        }
     }
 }
-

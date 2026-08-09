@@ -40,7 +40,8 @@ public class GiveMesosCommand extends Command {
             return;
         }
 
-        String recv_, value_;
+        String recv_ = "";
+        String value_ = "";
         long mesos_ = 0;
 
         if (params.length == 2) {
@@ -49,6 +50,45 @@ public class GiveMesosCommand extends Command {
         } else {
             recv_ = c.getPlayer().getName();
             value_ = params[0];
+        }
+
+        try {
+            String input = value_.trim().toLowerCase();
+
+            long multiplier = 1;
+
+            if (input.endsWith("k")) {
+                multiplier = 1_000L;
+                input = input.substring(0, input.length() - 1);
+            } else if (input.endsWith("m")) {
+                multiplier = 1_000_000L;
+                input = input.substring(0, input.length() - 1);
+            } else if (input.endsWith("b")) {
+                multiplier = 1_000_000_000L;
+                input = input.substring(0, input.length() - 1);
+            }
+
+            double amount = Double.parseDouble(input);
+            mesos_ = (long) (amount * multiplier);
+
+            if (mesos_ > Integer.MAX_VALUE) {
+                mesos_ = Integer.MAX_VALUE;
+            } else if (mesos_ < Integer.MIN_VALUE) {
+                mesos_ = Integer.MIN_VALUE;
+            }
+            if (Double.isNaN(amount) || Double.isInfinite(amount)) {
+                throw new NumberFormatException();
+            }
+
+        } catch (NumberFormatException nfe) {
+            if (value_.equalsIgnoreCase("max")) {
+                mesos_ = Integer.MAX_VALUE;
+            } else if (value_.equalsIgnoreCase("min")) {
+                mesos_ = Integer.MIN_VALUE;
+            } else {
+                player.yellowMessage("Invalid meso amount.");
+                return;
+            }
         }
 
         try {

@@ -106,7 +106,7 @@ public class PartySearchCoordinator {
         Set<Integer> vicinityMapids = mapNeighbors.get(calleeMapid);
 
         if (vicinityMapids != null) {
-            return vicinityMapids.contains(calleeMapid);
+            return vicinityMapids.contains(callerMapid);
         } else {
             int callerRange = callerMapid / 10000000;
             if (callerRange >= 90) {
@@ -123,28 +123,47 @@ public class PartySearchCoordinator {
         List<Pair<Integer, Integer>> jobSearchTypes = new LinkedList<Pair<Integer, Integer>>() {{
             add(new Pair<>(Job.MAPLELEAF_BRIGADIER.getId(), 0));
             add(new Pair<>(0, 0));
+
+            // Explorer / Aran
             add(new Pair<>(Job.ARAN1.getId(), 0));
-            add(new Pair<>(100, 3));
+
+            add(new Pair<>(100, 3)); // Warrior
+            add(new Pair<>(200, 3)); // Magician
+            add(new Pair<>(300, 2)); // Bowman
+            add(new Pair<>(400, 2)); // Thief
+            add(new Pair<>(500, 2)); // Pirate
+
+            // Cygnus
             add(new Pair<>(Job.DAWNWARRIOR1.getId(), 0));
-            add(new Pair<>(200, 3));
             add(new Pair<>(Job.BLAZEWIZARD1.getId(), 0));
-            add(new Pair<>(500, 2));
-            add(new Pair<>(Job.THUNDERBREAKER1.getId(), 0));
-            add(new Pair<>(400, 2));
-            add(new Pair<>(Job.NIGHTWALKER1.getId(), 0));
-            add(new Pair<>(300, 2));
             add(new Pair<>(Job.WINDARCHER1.getId(), 0));
-            add(new Pair<>(Job.EVAN1.getId(), 0));
+            add(new Pair<>(Job.NIGHTWALKER1.getId(), 0));
+            add(new Pair<>(Job.THUNDERBREAKER1.getId(), 0));
+
+            // Evan
+            add(new Pair<>(Job.EVAN1.getId(), 8));
+
+            // Legend beginner
+            add(new Pair<>(Job.LEGEND.getId(), 0));
         }};
 
         int i = 0;
-        for (Pair<Integer, Integer> p : jobSearchTypes) {
-            table.put(i, Job.getById(p.getLeft()));
-            i++;
 
-            for (int j = 1; j <= p.getRight(); j++) {
-                table.put(i, Job.getById(p.getLeft() + 10 * j));
+        for (Pair<Integer, Integer> p : jobSearchTypes) {
+            Job job = Job.getById(p.getLeft());
+
+            if (job != null) {
+                table.put(i, job);
                 i++;
+
+                for (int j = 1; j <= p.getRight(); j++) {
+                    Job advancement = Job.getById(p.getLeft() + 10 * j);
+
+                    if (advancement != null) {
+                        table.put(i, advancement);
+                        i++;
+                    }
+                }
             }
         }
 
@@ -190,14 +209,45 @@ public class PartySearchCoordinator {
     }
 
     public void attachPlayer(Character chr) {
-        upcomers.get(getPartySearchJob(chr.getJob())).attachPlayer(chr);
+        Job psJob = getPartySearchJob(chr.getJob());
+
+        if (psJob == null) {
+            System.out.println(
+                    "PartySearch NULL job mapping: "
+                            + chr.getName()
+                            + " job="
+                            + chr.getJob().getId()
+            );
+            return;
+        }
+
+        PartySearchEchelon echelon = upcomers.get(psJob);
+
+        if (echelon == null) {
+            System.out.println(
+                    "Creating missing PartySearch entry: "
+                            + psJob
+            );
+
+            echelon = new PartySearchEchelon();
+            upcomers.put(psJob, echelon);
+            storage.put(psJob, new PartySearchStorage());
+        }
+
+        echelon.attachPlayer(chr);
     }
 
     public void detachPlayer(Character chr) {
         Job psJob = getPartySearchJob(chr.getJob());
-
-        if (!upcomers.get(psJob).detachPlayer(chr)) {
-            storage.get(psJob).detachPlayer(chr);
+        if (psJob == null) {
+            return;
+        }
+        PartySearchEchelon echelon = upcomers.get(psJob);
+        PartySearchStorage psStorage = storage.get(psJob);
+        if (echelon != null && !echelon.detachPlayer(chr)) {
+            if (psStorage != null) {
+                psStorage.detachPlayer(chr);
+            }
         }
     }
 
@@ -208,15 +258,33 @@ public class PartySearchCoordinator {
     }
 
     private static Job getPartySearchJob(Job job) {
+
+        // Evan jobs stay as their own party search category
+        if (job.getId() == 2001 || (job.getId() >= 2200 && job.getId() <= 2218)) {
+            return job;
+        }
+
+        // Legend beginner
+        if (job.getId() == 2000) {
+            return Job.LEGEND;
+        }
+
+        // Beginner
         if (job.getJobNiche() == 0) {
             return Job.BEGINNER;
-        } else if (job.getId() < 600) { // explorers
-            return Job.getById((job.getId() / 10) * 10);
-        } else if (job.getId() >= 1000) {
-            return Job.getById((job.getId() / 100) * 100);
-        } else {
-            return Job.MAPLELEAF_BRIGADIER;
         }
+
+        // Explorer classes
+        if (job.getId() < 600) {
+            return Job.getById((job.getId() / 10) * 10);
+        }
+
+        // Cygnus
+        if (job.getId() >= 1000) {
+            return Job.getById((job.getId() / 100) * 100);
+        }
+
+        return Job.MAPLELEAF_BRIGADIER;
     }
 
     private Character fetchPlayer(int callerCid, int callerMapid, Job job, int minLevel, int maxLevel) {

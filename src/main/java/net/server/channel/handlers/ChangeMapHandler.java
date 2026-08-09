@@ -148,6 +148,17 @@ public final class ChangeMapHandler extends AbstractPacketHandler {
             }
 
             if (portal != null && !portal.getPortalStatus()) {
+                System.out.println(
+                        "BLOCKED PORTAL: map=" + chr.getMapId()
+                                + ", portalName=" + portalName
+                                + ", portalId=" + portal.getId()
+                                + ", targetMapId=" + portal.getTargetMapId()
+                                + ", target=" + portal.getTarget()
+                                + ", script=" + portal.getScriptName()
+                                + ", status=" + portal.getPortalStatus()
+                                + ", state=" + portal.getPortalState()
+                );
+
                 c.sendPacket(PacketCreator.blockedMessage(1));
                 c.sendPacket(PacketCreator.enableActions());
                 return;

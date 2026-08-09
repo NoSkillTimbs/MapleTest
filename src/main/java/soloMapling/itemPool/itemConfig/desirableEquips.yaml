@@ -1,0 +1,86 @@
+# Desirable Equips Whitelist
+# Items on this list bypass the price floor and level-band filters in generateEquipListIIPU.
+# Untradeable and quest items are ALWAYS filtered out regardless of this list.
+#
+# Format: category name -> list of item IDs
+# Organize by whatever grouping makes sense (class, slot, theme, etc.)
+# Add items here that are low-level or low WZ-price but still desirable (BIS, rare, iconic).
+#
+# Example:
+#   Warrior BIS:
+#     - 1002357   # Zakum Helmet
+#     - 1082149   # Brown Work Gloves
+
+Warrior BIS:
+  - 1002357   # Zakum Helmet
+  - 1442068   # Crimson Arcglaive
+  - 1442026   # Red Surfboard
+  - 1442027   # Green Surfboard
+  - 1442028   # Black Surfboard
+  - 1442029   # Gold Surfboard
+  - 1442030   # Maple Snowboard
+
+
+Thief BIS:
+  - 1472030   # Korean Fan (Claw)
+  - 1332025   # Maple Wagner
+  - 1332056   # Maple Asura Dagger
+  - 1332055   # Maple Dark Mate
+
+Mage BIS:
+  - 1382009   # Maple Staff
+  - 1372034   # Maple Shine Wand
+  - 1372035   # Elemental Wand 1
+  - 1372036   # Elemental Wand 2
+  - 1372037   # Elemental Wand 3
+  - 1372038   # Elemental Wand 4
+  - 1372039   # Elemental Wand 5
+  - 1372040   # Elemental Wand 6
+  - 1372041   # Elemental Wand 7
+  - 1372042   # Elemental Wand 8
+  - 1382060   # Crimson Arccannon
+  - 1382018   # Doomsday Staff
+
+Bowman BIS:
+  - 1452016   # Maple Bow
+  - 1302030   # Maple Soul Singer
+  - 1452060   # Crimson Arclancer
+  - 1452019   # Nisrock
+  - 1452022   # Bow of Magical Destruction
+
+Common BIS:
+  - 1082149   # Brown Work Gloves
+  - 1082002   # Work Gloves
+  - 1102040   # Yellow Adventurer Cape
+  - 1102041   # Pink Adventurer Cape
+  - 1102042   # Purple Adventurer Cape
+  - 1102079   # Ragged Red Cape
+  - 1102080   # Ragged Blue Cape
+  - 1102081   # Ragged Yellow Cape
+  - 1102082   # Ragged Black Cape
+  - 1102083   # Ragged Green Cape
+  - 1102084   # Pink Gaia Cape
+  - 1102085   # Yellow Gaia Cape
+  - 1102086   # Purple Gaia Cape
+  - 1072239   # Facestompers
+
+
+Rare Masks:
+  - 1012076   # Smiling Mask
+  - 1012077   # Crying Mask
+  - 1012078   # Angry Mask
+  - 1012079   # Sad Mask
+
+
+Iconic Weapons:
+  - 1302013   # Red Whip
+  - 1302049   # Glowing Whip
+  - 1302063   # Flaming Katana
+  - 1402037   # Stonetooth Sword
+  - 1422030   # Pink Seal Cushion
+  - 1422031   # Blue Seal Cushion
+
+Rare Accessories:
+  - 1032030   # Sword Earrings
+  - 1122014   # Silver Deputy Star
+  - 1122007   # Spiegelman's Necklace

@@ -138,19 +138,46 @@ public enum Job {
         }
 
         return (jobid / 100) % 10;
-
-        /*
-        case 0: BEGINNER;
-        case 1: WARRIOR;
-        case 2: MAGICIAN;
-        case 3: BOWMAN;
-        case 4: THIEF;
-        case 5: PIRATE;
-        case 6: EVAN;
-        */
-    }
-    public boolean isEvan() {
-        return jobid == 2001 || (jobid >= 2200 && jobid <= 2218);
     }
 
-}
+    public int getJobTier() {
+        if (jobid == 0) {
+            return 0;
+        }
+
+        if (isEvan()) {
+            if (jobid == 2001) return 0;
+            if (jobid >= 2200 && jobid <= 2209) return 1;
+            if (jobid >= 2210 && jobid <= 2214) return 2;
+            if (jobid >= 2215 && jobid <= 2217) return 3;
+            if (jobid == 2218) return 4;
+        }
+
+        switch (jobid % 100) {
+            case 0:
+                return 1;
+            case 10:
+                return 2;
+            case 11:
+                return 3;
+            case 12:
+                return 4;
+            default:
+                return 0;
+        }
+
+        }
+
+        public boolean isEvan () {
+            return jobid == 2001 || (jobid >= 2200 && jobid <= 2218);
+        }
+
+        public boolean isLegend () {
+            return jobid == 2000;
+        }
+
+        public boolean isEvanBeginner () {
+            return jobid == 2001;
+        }
+    }
+

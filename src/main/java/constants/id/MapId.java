@@ -188,6 +188,17 @@ public class MapId {
     public static final int ANT_TUNNEL_2 = 105050100;
     public static final int CAVE_OF_MUSHROOMS_BASE = 105050101;
     public static final int SLEEPY_DUNGEON_4 = 105040304;
+    public static final int ANT_TUNNEL_PARK = 105070001; // deep rest junction → Cave of Evil Eye / Grave of Mushmom (training-bot deep hub)
+    public static final int PATH_OF_TIME_HUB = 220050300; // deep Ludibrium junction → Forgotten Path of Time / Clocktower (training-bot deep hub)
+    public static final int SHARP_CLIFF_I = 211040300; // deep El Nath junction → Sharp Cliff II / Wolf Territory / Forest of Dead Trees / Dead Mine (training-bot deep hub, reached from Ice Valley II via Jeff one-way)
+    // High-level training grind maps (added for @goto bot testing)
+    public static final int FOREST_OF_GOLEM = 105040306;           // Sleepywood - The Forest of Golem
+    public static final int DRAKES_MEAL_TABLE = 105090300;         // Sleepywood - Drake's Meal Table
+    public static final int GARDEN_OF_DARKNESS_I = 200010301;      // Orbis - Garden of Darkness I
+    public static final int CLOUD_PARK_VI = 200080000;             // Orbis - Cloud Park VI
+    public static final int FORGOTTEN_PATH_OF_TIME_IV = 220070300; // Ludibrium - Forgotten Path of Time <4>
+    public static final int WOLF_TERRITORY_V = 211041000;          // El Nath - Wolf Territory V ("Valley of Wolves V")
+    public static final int FOREST_OF_DEAD_TREES_IV = 211041400;   // El Nath - Forest of Dead Trees IV
     public static final int GOLEMS_CASTLE_RUINS_BASE = 105040320;
     public static final int SAHEL_2 = 260020600;
     public static final int HILL_OF_SANDSTORMS_BASE = 260020630;
@@ -270,7 +281,8 @@ public class MapId {
     public static final int MANONS_FOREST = 240020401;
     public static final int HOLLOWED_GROUND = 682000001;
     public static final int CURSED_SANCTUARY = 105090900;
-    public static final int DOOR_TO_ZAKUM = 211042300;
+    public static final int DOOR_TO_ZAKUM = 211042400;
+    public static final int ALTAR_TO_ZAKUM = 280030000;
     public static final int DRAGON_NEST_LEFT_BEHIND = 240040511;
     public static final int HENESYS_PARK = 100000200;
     public static final int ENTRANCE_TO_HORNTAILS_CAVE = 240050400;

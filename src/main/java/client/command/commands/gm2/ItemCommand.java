@@ -41,52 +41,101 @@ public class ItemCommand extends Command {
 
     @Override
     public void execute(Client c, String[] params) {
-        Character player = c.getPlayer();
+        Character target = c.getPlayer();
+        Character executor = c.getPlayer();
 
-        if (params.length < 1) {
-            player.yellowMessage("Syntax: !item <itemid> <quantity>");
+        int index = 0;
+
+        // If the first parameter isn't a number, assume it's a player name.
+        try {
+            Integer.parseInt(params[0]);
+        } catch (NumberFormatException e) {
+            target = c.getWorldServer()
+                    .getPlayerStorage()
+                    .getCharacterByName(params[0]);
+
+            if (target == null) {
+                executor.yellowMessage("Player '" + params[0] + "' is not online.");
+                return;
+            }
+
+            index = 1;
+        }
+
+        if (params.length <= index) {
+            executor.yellowMessage("Syntax: !item [player] <itemid> <quantity>");
             return;
         }
 
-        int itemId = Integer.parseInt(params[0]);
+        int itemId;
+        try {
+            itemId = Integer.parseInt(params[index]);
+        } catch (NumberFormatException e) {
+            executor.yellowMessage("Invalid item id.");
+            return;
+        }
+
         ItemInformationProvider ii = ItemInformationProvider.getInstance();
 
         if (ii.getName(itemId) == null) {
-            player.yellowMessage("Item id '" + params[0] + "' does not exist.");
+            executor.yellowMessage("Item id '" + params[index] + "' does not exist.");
             return;
         }
 
         short quantity = 1;
-        if (params.length >= 2) {
-            quantity = Short.parseShort(params[1]);
+        if (params.length > index + 1) {
+            quantity = Short.parseShort(params[index + 1]);
         }
 
         if (YamlConfig.config.server.BLOCK_GENERATE_CASH_ITEM && ii.isCash(itemId)) {
-            player.yellowMessage("You cannot create a cash item with this command.");
+            executor.yellowMessage("You cannot create a cash item with this command.");
             return;
         }
 
         if (ItemConstants.isPet(itemId)) {
-            if (params.length >= 2) {   // thanks to istreety & TacoBell
+            if (params.length > index + 1) {
                 quantity = 1;
-                long days = Math.max(1, Integer.parseInt(params[1]));
+                long days = Math.max(1, Integer.parseInt(params[index + 1]));
                 long expiration = System.currentTimeMillis() + DAYS.toMillis(days);
                 int petid = Pet.createPet(itemId);
 
-                InventoryManipulator.addById(c, itemId, quantity, player.getName(), petid, expiration);
+                InventoryManipulator.addById(
+                        target.getClient(),
+                        itemId,
+                        quantity,
+                        executor.getName(),
+                        petid,
+                        expiration);
+
+                executor.yellowMessage("Created pet for " + target.getName() + ".");
                 return;
             } else {
-                player.yellowMessage("Pet Syntax: !item <itemid> <expiration>");
+                executor.yellowMessage("Pet Syntax: !item [player] <itemid> <expiration>");
                 return;
             }
         }
 
         short flag = 0;
-        if (player.gmLevel() < 3) {
+        if (target.gmLevel() < 3) {
             flag |= ItemConstants.ACCOUNT_SHARING;
             flag |= ItemConstants.UNTRADEABLE;
         }
 
-        InventoryManipulator.addById(c, itemId, quantity, player.getName(), -1, flag, -1);
+        InventoryManipulator.addById(
+                target.getClient(),
+                itemId,
+                quantity,
+                executor.getName(),
+                -1,
+                flag,
+                -1);
+
+        if (target != executor) {
+            executor.yellowMessage("Gave " + quantity + " x " + ii.getName(itemId)
+                    + " to " + target.getName() + ".");
+            target.yellowMessage("You received " + quantity + " x "
+                    + ii.getName(itemId) + " from " + executor.getName() + ".");
+        }
     }
+
 }

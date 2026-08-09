@@ -216,7 +216,10 @@ public class ItemInformationProvider {
             theData = cashStringData;
         } else if (itemId >= 2000000 && itemId < 3000000) {
             theData = consumeStringData;
-        } else if ((itemId >= 1010000 && itemId < 1040000) || (itemId >= 1122000 && itemId < 1123000) || (itemId >= 1132000 && itemId < 1133000) || (itemId >= 1142000 && itemId < 1143000)) {
+        } else if ((itemId >= 1010000 && itemId < 1040000)
+                || (itemId >= 1122000 && itemId < 1123000)
+                || (itemId >= 1132000 && itemId < 1133000)
+                || (itemId >= 1142000 && itemId < 1143000)) {
             theData = eqpStringData;
             cat = "Eqp/Accessory";
         } else if (itemId >= 1000000 && itemId < 1010000) {
@@ -271,10 +274,19 @@ public class ItemInformationProvider {
         } else {
             return null;
         }
-        if (cat.equalsIgnoreCase("null")) {
-            return theData.getChildByPath(String.valueOf(itemId));
-        } else {
+        if (theData == null) {
+            System.err.println("[ItemInformationProvider] Missing string data provider for " + itemId);
+            return null;
+        }
+        try {
+            if (cat == null) {
+                return theData.getChildByPath(String.valueOf(itemId));
+            }
             return theData.getChildByPath(cat + "/" + itemId);
+        } catch (Exception e) {
+            System.err.println("[ItemInformationProvider] Failed string lookup: " + itemId);
+            e.printStackTrace();
+            return null;
         }
     }
 
@@ -294,7 +306,7 @@ public class ItemInformationProvider {
         return blockMouse;
     }
 
-    private Data getItemData(int itemId) {
+    public Data getItemData(int itemId) {
         Data ret = null;
         String idStr = "0" + itemId;
         DataDirectoryEntry root = itemData.getRoot();
@@ -1116,7 +1128,7 @@ public class ItemInformationProvider {
                             break;
                     }
                     if (!ItemConstants.isCleanSlate(scrollId)) {
-                        if (!assertGM && !ItemConstants.isModifierScroll(scrollId)) {   // issue with modifier scrolls taking slots found thanks to Masterrulax, justin, BakaKnyx
+                        if (!ItemConstants.isModifierScroll(scrollId)) { // GM can scroll as normal // issue with modifier scrolls taking slots found thanks to Masterrulax, justin, BakaKnyx
                             nEquip.setUpgradeSlots((byte) (nEquip.getUpgradeSlots() - 1));
                         }
                         nEquip.setLevel((byte) (nEquip.getLevel() + 1));
@@ -1332,16 +1344,25 @@ public class ItemInformationProvider {
     }
 
     public String getName(int itemId) {
-        if (nameCache.containsKey(itemId)) {
-            return nameCache.get(itemId);
+        String cached = nameCache.get(itemId);
+        if (cached != null) {
+            return cached;
         }
-        Data strings = getStringData(itemId);
-        if (strings == null) {
+        try {
+            Data strings = getStringData(itemId);
+            if (strings == null) {
+                return null;
+            }
+            String ret = DataTool.getString("name", strings, null);
+            if (ret != null) {
+                nameCache.put(itemId, ret);
+            }
+            return ret;
+        } catch (Exception e) {
+            System.err.println("[ItemInformationProvider] Failed loading name for item " + itemId);
+            e.printStackTrace();
             return null;
         }
-        String ret = DataTool.getString("name", strings, null);
-        nameCache.put(itemId, ret);
-        return ret;
     }
 
     public String getMsg(int itemId) {
@@ -2063,7 +2084,7 @@ public class ItemInformationProvider {
                 try (ResultSet rs = ps.executeQuery()) {
                     if (rs.next()) {
                         int dropperid = rs.getInt("dropperid");
-                        itemid = getCrystalForLevel(LifeFactory.getMonsterLevel(dropperid));
+                        itemid = getCrystalForLevel(LifeFactory.getMonsterLevel(dropperid) - 1);
                     }
                 }
             }

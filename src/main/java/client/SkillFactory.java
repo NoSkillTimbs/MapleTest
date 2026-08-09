@@ -90,13 +90,21 @@ public class SkillFactory {
     private static final DataProvider datasource = DataProviderFactory.getDataProvider(WZFiles.SKILL);
 
     public static Skill getSkill(int id) {
-        return skills.get(id);
+        Skill skill = skills.get(id);
+
+        if (skill == null) {
+            System.out.println("MISSING SKILL DATA: " + id);
+            Thread.dumpStack();
+        }
+
+        return skill;
     }
 
     public static void loadAllSkills() {
         final Map<Integer, Skill> loadedSkills = new HashMap<>();
         final DataDirectoryEntry root = datasource.getRoot();
-        for (DataFileEntry topDir : root.getFiles()) { // Loop thru jobs
+        for (DataFileEntry topDir : root.getFiles()) {
+            System.out.println("Skill folder: " + topDir.getName());// Loop thru jobs
             if (topDir.getName().length() <= 8) {
                 for (Data data : datasource.getData(topDir.getName())) { // Loop thru each jobs
                     if (data.getName().equals("skill")) {
@@ -112,7 +120,12 @@ public class SkillFactory {
         }
 
         skills = loadedSkills;
+        System.out.println("Loaded skills: " + skills.size());
+        System.out.println("20000012 exists: " + skills.containsKey(20000012));
+        System.out.println("1002 exists: " + skills.containsKey(1002));
+
     }
+
 
     private static Skill loadFromData(int id, Data data) {
         Skill ret = new Skill(id);
