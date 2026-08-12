@@ -2650,14 +2650,20 @@ public class MapleMap {
     public Portal getRandomPlayerSpawnpoint() {
         List<Portal> spawnPoints = new ArrayList<>();
         for (Portal portal : portals.values()) {
-            if (portal.getType() >= 0 && portal.getType() <= 1 && portal.getTargetMapId() == MapId.NONE) {
+            if (portal.getType() >= 0
+                    && portal.getType() <= 1
+                    && portal.getTargetMapId() == 999999999) {
                 spawnPoints.add(portal);
             }
         }
-        Portal portal = spawnPoints.get(new Random().nextInt(spawnPoints.size()));
-        return portal != null ? portal : getPortal(0);
-    }
 
+        if (!spawnPoints.isEmpty()) {
+            return spawnPoints.get(
+                    Randomizer.nextInt(spawnPoints.size()));
+        }
+
+        return getPortal(0);
+    }
     public Portal findClosestTeleportPortal(Point from) {
         Portal closest = null;
         double shortestDistance = Double.POSITIVE_INFINITY;
@@ -2674,14 +2680,24 @@ public class MapleMap {
     public Portal findClosestPlayerSpawnpoint(Point from) {
         Portal closest = null;
         double shortestDistance = Double.POSITIVE_INFINITY;
+
         for (Portal portal : portals.values()) {
-            double distance = portal.getPosition().distanceSq(from);
-            if (portal.getType() >= 0 && portal.getType() <= 1 && distance < shortestDistance && portal.getTargetMapId() == MapId.NONE) {
+            double distance =
+                    portal.getPosition().distanceSq(from);
+
+            if (portal.getType() >= 0
+                    && portal.getType() <= 1
+                    && distance < shortestDistance
+                    && portal.getTargetMapId() == 999999999) {
+
                 closest = portal;
                 shortestDistance = distance;
             }
         }
-        return closest;
+
+        return closest != null
+                ? closest
+                : getPortal(0);
     }
 
     public Portal findClosestPortal(Point from) {

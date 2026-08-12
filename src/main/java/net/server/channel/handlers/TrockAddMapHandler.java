@@ -19,12 +19,14 @@
     You should have received a copy of the GNU Affero General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
+
 package net.server.channel.handlers;
 
 import client.Character;
 import client.Client;
 import net.AbstractPacketHandler;
 import net.packet.InPacket;
+import server.maps.FieldLimit;
 import tools.PacketCreator;
 
 /**
@@ -35,17 +37,47 @@ public final class TrockAddMapHandler extends AbstractPacketHandler {
     @Override
     public final void handlePacket(InPacket p, Client c) {
         Character chr = c.getPlayer();
+
         byte type = p.readByte();
         boolean vip = p.readByte() == 1;
+
+        // Delete a saved map.
         if (type == 0x00) {
             int mapId = p.readInt();
+
             if (vip) {
                 chr.deleteFromVipTrocks(mapId);
             } else {
                 chr.deleteFromTrocks(mapId);
             }
+
             c.sendPacket(PacketCreator.trockRefreshMapList(chr, true, vip));
 
-            c.sendPacket(PacketCreator.trockRefreshMapList(chr, false, vip));
-        }    }
+            // Save the current map.
+        } else if (type == 0x01) {
+
+            /*
+             * VIP Rock:
+             * Allow saving ANY map, including maps flagged
+             * CANNOTVIPROCK.
+             */
+            if (vip) {
+                chr.addVipTrockMap();
+
+                c.sendPacket(PacketCreator.trockRefreshMapList(chr, false, true));
+
+                /*
+                 * Normal Teleport Rock:
+                 * Continue respecting the normal map restriction.
+                 */
+            } else if (!FieldLimit.CANNOTVIPROCK.check(chr.getMap().getFieldLimit())) {
+                chr.addTrockMap();
+
+                c.sendPacket(PacketCreator.trockRefreshMapList(chr, false, false));
+
+            } else {
+                chr.message("You may not save this map.");
+            }
+        }
+    }
 }

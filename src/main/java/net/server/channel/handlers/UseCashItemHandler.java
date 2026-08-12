@@ -67,6 +67,7 @@ import server.maps.PlayerShopItem;
 import service.NoteService;
 import tools.PacketCreator;
 import tools.Pair;
+import server.maps.Portal;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -125,69 +126,242 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
             medal = "<" + ii.getName(medalItem.getItemId()) + "> ";
         }
 
-        if (itemType == 504) { // teleport rocks
-            String error1 = "Either the player could not be found or you were trying to teleport to an illegal location.";
+        if (itemType == 504) { // Teleport Rock / VIP Teleport Rock / Hyper Teleport Rock
+            final String error1 =
+                    "Either the player could not be found or you were trying to teleport to an illegal location.";
 
-            boolean isHyperRock = (itemId == 5041999);
-            boolean vip = p.readByte() == 1
-                    && itemId / 1000 >= 5041
-                    && !isHyperRock;
+            /*
+             * Teleport Rock item families:
+             *
+             * 5040xxx = Normal Teleport Rock
+             * 5041xxx = VIP Teleport Rock family
+             * 5041999 = Hyper Teleport Rock
+             *
+             * Packet byte:
+             *
+             * 0 = teleport to a saved map
+             * 1 = teleport to a player
+             *
+             * Hyper Rock uses the same packet structure as VIP Rock.
+             */
+            final boolean isHyperRock = itemId == 5041999;
+            final boolean isVipRock = itemId / 1000 >= 5041;
 
-            remove(c, position, itemId);
+            /*
+             * Read the packet mode exactly ONCE.
+             *
+             * Hyper Rock is part of the 5041xxx family, so it supports
+             * both saved-map and player teleportation.
+             */
+            final boolean teleportToPlayer =
+                    p.readByte() == 1 && isVipRock;
+
+            /*
+             * Hyper Rock is reusable.
+             *
+             * Do NOT remove it from the inventory.
+             *
+             * Normal/VIP Rocks are consumed and restored if teleportation
+             * fails.
+             */
+            if (!isHyperRock) {
+                remove(c, position, itemId);
+            }
 
             boolean success = false;
 
-            if (!vip) {
-                int mapId = p.readInt();
+            /*
+             * ============================================================
+             * TELEPORT TO SAVED MAP
+             * ============================================================
+             */
+            if (!teleportToPlayer) {
+                final int mapId = p.readInt();
 
-                // Teleport rocks can now travel to any valid map.
-                MapleMap targetMap = c.getChannelServer()
+                final MapleMap targetMap = c.getChannelServer()
                         .getMapFactory()
                         .getMap(mapId);
 
-                if (targetMap != null) {
-                    player.forceChangeMap(
-                            targetMap,
-                            targetMap.getRandomPlayerSpawnpoint());
-
-                    success = true;
-                } else {
+                if (targetMap == null) {
                     player.dropMessage(1, error1);
+
+                } else if (isVipRock) {
+
+                    /*
+                     * VIP / HYPER ROCK
+                     *
+                     * These Rocks are allowed to teleport to any map
+                     * that exists in the MapFactory.
+                     *
+                     * Deliberately bypass:
+                     *
+                     *   - CANNOTVIPROCK
+                     *   - forcedReturnId
+                     *   - continent restrictions
+                     */
+                    Portal spawnPoint =
+                            targetMap.getRandomPlayerSpawnpoint();
+
+                    /*
+                     * Safety fallback for maps that do not have a normal
+                     * player spawnpoint.
+                     */
+                    if (spawnPoint == null) {
+                        spawnPoint = targetMap.getPortal(0);
+                    }
+
+                    if (spawnPoint != null) {
+                        player.forceChangeMap(
+                                targetMap,
+                                spawnPoint);
+
+                        success = true;
+                    } else {
+                        player.dropMessage(1, error1);
+                    }
+
+                } else {
+
+                    /*
+                     * ====================================================
+                     * NORMAL TELEPORT ROCK
+                     * ====================================================
+                     *
+                     * Preserve normal Teleport Rock restrictions.
+                     */
+                    final boolean sameContinent =
+                            mapId / 100000000
+                                    == player.getMapId() / 100000000;
+
+                    final boolean validFieldLimit =
+                            !FieldLimit.CANNOTVIPROCK.check(
+                                    targetMap.getFieldLimit());
+
+                    final boolean validForcedReturn =
+                            targetMap.getForcedReturnId() == MapId.NONE
+                                    || MapId.isMapleIsland(mapId);
+
+                    if (sameContinent
+                            && validFieldLimit
+                            && validForcedReturn) {
+
+                        Portal spawnPoint =
+                                targetMap.getRandomPlayerSpawnpoint();
+
+                        if (spawnPoint == null) {
+                            spawnPoint = targetMap.getPortal(0);
+                        }
+
+                        if (spawnPoint != null) {
+                            player.forceChangeMap(
+                                    targetMap,
+                                    spawnPoint);
+
+                            success = true;
+                        } else {
+                            player.dropMessage(1, error1);
+                        }
+
+                    } else if (!sameContinent) {
+
+                        player.dropMessage(
+                                1,
+                                "You cannot teleport between continents with this teleport rock.");
+
+                    } else {
+                        player.dropMessage(1, error1);
+                    }
                 }
 
+                /*
+                 * ============================================================
+                 * TELEPORT TO PLAYER
+                 * ============================================================
+                 */
             } else {
-                String targetName = p.readString();
+                final String targetName = p.readString();
 
-                Character target = c.getChannelServer()
+                final Character target = c.getChannelServer()
                         .getPlayerStorage()
                         .getCharacterByName(targetName);
 
                 if (target == null) {
-                    player.dropMessage(1, error1);
+
+                    player.dropMessage(
+                            1,
+                            "Player could not be found in this channel.");
+
                 } else {
-                    MapleMap targetMap = target.getMap();
+                    final MapleMap targetMap = target.getMap();
 
-                    // VIP rock can now teleport to the target regardless
-                    // of field-limit or forced-return restrictions.
-                    if (targetMap != null) {
-                        player.forceChangeMap(
-                                targetMap,
-                                targetMap.getPortal(0));
+                    if (targetMap == null) {
 
-                        success = true;
+                        player.dropMessage(1, error1);
+
+                    } else if (!target.isGM()
+                            || target.gmLevel() <= player.gmLevel()) {
+
+                        /*
+                         * VIP / HYPER ROCK PLAYER TELEPORT
+                         *
+                         * Deliberately bypass:
+                         *
+                         *   - CANNOTVIPROCK
+                         *   - forcedReturnId
+                         *   - continent restrictions
+                         *
+                         * GM protection remains intact.
+                         */
+                        Portal spawnPoint =
+                                targetMap.findClosestPlayerSpawnpoint(
+                                        target.getPosition());
+
+                        /*
+                         * Some maps may not have a valid player-spawn
+                         * portal. Fall back to portal 0.
+                         */
+                        if (spawnPoint == null) {
+                            spawnPoint = targetMap.getPortal(0);
+                        }
+
+                        if (spawnPoint != null) {
+                            player.forceChangeMap(
+                                    targetMap,
+                                    spawnPoint);
+
+                            success = true;
+                        } else {
+                            player.dropMessage(1, error1);
+                        }
+
                     } else {
                         player.dropMessage(1, error1);
                     }
                 }
             }
 
+            /*
+             * ============================================================
+             * FAILED TELEPORT
+             * ============================================================
+             *
+             * Hyper Rock was never removed, so it remains untouched.
+             *
+             * Normal/VIP Rocks were consumed before the teleport attempt
+             * and therefore need to be returned if the teleport failed.
+             */
             if (!success) {
                 if (!isHyperRock) {
-                    InventoryManipulator.addById(c, itemId, (short) 1);
+                    InventoryManipulator.addById(
+                            c,
+                            itemId,
+                            (short) 1);
                 }
+
                 c.sendPacket(PacketCreator.enableActions());
             }
-        }        else if (itemType == 505) { // AP/SP reset
+
+        } else if (itemType == 505) { // AP/SP resetelse if (itemType == 505) { // AP/SP resetelse if (itemType == 505) { // AP/SP reset
             if (!player.isAlive()) {
                 c.sendPacket(PacketCreator.enableActions());
                 return;

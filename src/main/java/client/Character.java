@@ -10142,6 +10142,7 @@ public class Character extends AbstractCharacterObject {
 
     public int getTrockSize() {
         int ret = trockmaps.indexOf(MapId.NONE);
+
         if (ret == -1) {
             ret = 5;
         }
@@ -10151,7 +10152,8 @@ public class Character extends AbstractCharacterObject {
 
     public void deleteFromTrocks(int map) {
         trockmaps.remove(Integer.valueOf(map));
-        while (trockmaps.size() < 10) {
+
+        while (trockmaps.size() < 5) {
             trockmaps.add(MapId.NONE);
         }
     }
@@ -10186,9 +10188,13 @@ public class Character extends AbstractCharacterObject {
     }
 
     public void addVipTrockMap() {
+        int mapId = getMapId();
+        if (viptrockmaps.contains(mapId)) {
+            return;
+        }
         int index = viptrockmaps.indexOf(MapId.NONE);
         if (index != -1) {
-            viptrockmaps.set(index, getMapId());
+            viptrockmaps.set(index, mapId);
         }
     }
 
