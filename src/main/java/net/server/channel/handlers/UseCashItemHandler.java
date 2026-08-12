@@ -361,7 +361,7 @@ public final class UseCashItemHandler extends AbstractPacketHandler {
                 c.sendPacket(PacketCreator.enableActions());
             }
 
-        } else if (itemType == 505) { // AP/SP resetelse if (itemType == 505) { // AP/SP resetelse if (itemType == 505) { // AP/SP reset
+        } else if (itemType == 505) { // AP/SP reset
             if (!player.isAlive()) {
                 c.sendPacket(PacketCreator.enableActions());
                 return;
